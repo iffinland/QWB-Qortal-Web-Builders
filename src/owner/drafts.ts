@@ -1,30 +1,32 @@
 /**
- * Unsaved owner changes.
+ * Unsaved owner drafts.
  *
- * Phase 2 has no write path, so an "unsaved change" is exactly what the owner
- * can see and undo: a staged reorder that was applied to the DOM on screen only.
- * Tracking it explicitly is what lets the owner bar tell the truth ("2 unsaved
- * changes — not published") and lets the owner discard them, which is the same
- * dirty-state contract Phase 3 needs once a change really can be published.
+ * A draft is an **open, edited form whose changes are not published yet**. The
+ * registry exists so the owner bar can state that truthfully ("1 unsaved draft —
+ * not published") without the bar having to know which dialogs are open.
+ *
+ * Ordering is no longer a draft: Phase 3 persists a reorder immediately (one
+ * midpoint write per move, verified by re-read), so there is nothing to stage or
+ * discard globally. Each form owns its own dirty guard and its own draft, which is
+ * what is kept when a write is rejected or ambiguous.
  */
 
-export interface ReorderDraft {
+export interface DraftEntry {
   readonly key: string;
-  readonly entityId: string;
-  readonly entityTitle: string;
-  readonly direction: 'up' | 'down';
+  readonly label: string;
 }
 
 export interface DraftStore {
   readonly count: number;
-  record(draft: ReorderDraft): void;
-  list(): readonly ReorderDraft[];
+  /** Registers/refreshes a dirty form; `label === null` clears that key. */
+  setDirty(key: string, label: string | null): void;
+  list(): readonly DraftEntry[];
   clear(): void;
   subscribe(listener: () => void): () => void;
 }
 
 export function createDraftStore(): DraftStore {
-  let drafts: readonly ReorderDraft[] = [];
+  let drafts: readonly DraftEntry[] = [];
   const listeners = new Set<() => void>();
 
   const notify = (): void => {
@@ -35,8 +37,16 @@ export function createDraftStore(): DraftStore {
     get count() {
       return drafts.length;
     },
-    record(draft) {
-      drafts = [...drafts, draft];
+    setDirty(key, label) {
+      const existing = drafts.find((entry) => entry.key === key);
+      if (label === null) {
+        if (existing === undefined) return;
+        drafts = drafts.filter((entry) => entry.key !== key);
+        notify();
+        return;
+      }
+      if (existing?.label === label) return;
+      drafts = [...drafts.filter((entry) => entry.key !== key), { key, label }];
       notify();
     },
     list() {

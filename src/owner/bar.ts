@@ -14,7 +14,9 @@
 import type { OwnerSession, OwnerSessionState, ReverifyTrigger } from './session';
 import type { OwnerFlows } from './flows';
 import type { DraftStore } from './drafts';
+import type { WriteLog } from './writes';
 import { showToast } from '../ui/toast';
+import { WRITE_STATE_LABEL } from '../qortal/write';
 
 export const OWNER_BAR_ID = 'qwb-owner-bar';
 
@@ -30,6 +32,7 @@ export interface OwnerBarDeps {
   readonly session: OwnerSession;
   readonly flows: OwnerFlows;
   readonly drafts: DraftStore;
+  readonly writes: WriteLog;
   /** Expansion is owned by the shell so a state rebuild cannot collapse it. */
   readonly isExpanded: () => boolean;
   readonly onToggleExpanded: () => void;
@@ -90,39 +93,49 @@ export function mountOwnerBar(root: HTMLElement, deps: OwnerBarDeps): () => void
   body.id = 'qwb-owner-bar-body';
   body.hidden = !deps.isExpanded();
 
-  const status = element(
-    'span',
-    'qwb-owner-status',
-    'Publishing: off (Phase 2) — nothing is saved or published',
-  );
+  const status = element('span', 'qwb-owner-status', '');
+  const dirty = element('span', 'qwb-owner-dirty', '');
 
-  const dirtyCount = deps.drafts.count;
-  const dirty = element(
-    'span',
-    `qwb-owner-dirty${dirtyCount > 0 ? ' qwb-owner-dirty-active' : ''}`,
-    dirtyCount === 0
-      ? 'No unsaved changes'
-      : `${String(dirtyCount)} unsaved change${dirtyCount === 1 ? '' : 's'} (not published)`,
-  );
+  /**
+   * Both lines are derived from live state and are written verbatim: a write is
+   * "in flight" until it settles, and a settled write is only "verified" when the
+   * node was read back. Nothing here guesses.
+   */
+  const refresh = (): void => {
+    const pending = deps.writes.pendingCount();
+    const last = deps.writes.entries().find((entry) => entry.stage === 'settled') ?? null;
+    const lastPart =
+      last === null
+        ? 'no writes in this session'
+        : `last write: ${last.state === null ? 'unknown' : WRITE_STATE_LABEL[last.state]} (availability: ${last.availability})`;
+    status.textContent =
+      pending > 0
+        ? `Publishing: ${String(pending)} write${pending === 1 ? '' : 's'} in flight — ${lastPart}`
+        : `Publishing to QDN under “${state.publishingName}” — ${lastPart}`;
+
+    const count = deps.drafts.count;
+    dirty.className = `qwb-owner-dirty${count > 0 ? ' qwb-owner-dirty-active' : ''}`;
+    dirty.textContent =
+      count === 0
+        ? 'No unsaved drafts'
+        : `${String(count)} unsaved draft${count === 1 ? '' : 's'} — not published`;
+  };
+  refresh();
+  const unsubscribe = deps.writes.subscribe(refresh);
+  const unsubscribeDrafts = deps.drafts.subscribe(refresh);
 
   const actions = element('div', 'qwb-owner-actions');
   actions.append(
     actionButton('Publishing status', () => {
       deps.flows.openPublishStatus();
     }),
+    actionButton('Reload content', () => {
+      deps.flows.reloadContent();
+    }),
+    actionButton('Check last write', () => {
+      deps.flows.checkLastWrite();
+    }),
   );
-
-  if (dirtyCount > 0) {
-    actions.append(
-      actionButton('Discard unsaved changes', () => {
-        deps.drafts.clear();
-        deps.requestRerender();
-        showToast('Unsaved order changes were discarded. Nothing had been published.', {
-          tone: 'warning',
-        });
-      }),
-    );
-  }
 
   const reverify = actionButton(
     state.checking ? 'Re-checking…' : 'Re-check owner mode',
@@ -157,6 +170,8 @@ export function mountOwnerBar(root: HTMLElement, deps: OwnerBarDeps): () => void
   publishHeight();
 
   return () => {
+    unsubscribe();
+    unsubscribeDrafts();
     bar.remove();
     document.documentElement.style.removeProperty(OWNER_BAR_HEIGHT_VAR);
   };

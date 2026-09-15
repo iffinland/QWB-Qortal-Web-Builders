@@ -57,9 +57,20 @@ export interface ExpectedResource {
  * inventing optimistic copy.
  */
 export const WRITE_STATE_LABEL: Readonly<Record<WriteState, string>> = {
-  submitted: 'Submitted to the host — availability not yet verified',
+  /**
+   * The label names only what the host did. Availability is a *separate* fact
+   * (`WriteAvailability`) that every surface renders next to it, because folding it
+   * into this label produced a contradiction the moment a write verified:
+   * "…availability not yet verified (verified)".
+   */
+  submitted: 'Submitted to the host',
   rejected: 'Rejected by the host — nothing was published',
-  ambiguous: 'Outcome unknown — the host did not answer in time',
+  /**
+   * True for both ambiguity shapes — a host that timed out and a host that answered
+   * without a signature. The specific reason belongs in the detail, not in a label
+   * that would be wrong for one of the two.
+   */
+  ambiguous: 'Outcome unknown — the request may or may not have been signed',
   failed: 'Failed — nothing was published',
 };
 

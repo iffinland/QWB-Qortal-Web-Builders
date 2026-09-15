@@ -4,9 +4,11 @@ import { seedBundle } from '../src/content/seed';
 import {
   MAX_IDENTIFIER_LENGTH,
   SCHEMA_VERSION,
+  buildTombstone,
   identifierPrefixFor,
   isEntityKind,
   isValidIdentifier,
+  readStoredEntity,
   validateBundle,
   validateEntity,
 } from '../src/content/schema';
@@ -183,5 +185,41 @@ describe('validateBundle', () => {
     expect(serialised).not.toMatch(/\.(jpe?g)"/i);
     expect(serialised).not.toContain('qortal.org');
     expect(serialised).toContain('qortal://');
+  });
+});
+
+describe('stored resources', () => {
+  const highlight = seedBundle.highlights[0];
+  if (highlight === undefined) throw new Error('no seed highlight');
+
+  it('classifies an active payload through the same validator the seed path uses', () => {
+    const stored = readStoredEntity(JSON.parse(JSON.stringify(highlight)));
+    expect(stored.status).toBe('active');
+    if (stored.status !== 'active') return;
+    expect(stored.entity).toEqual(highlight);
+  });
+
+  it('recognises a tombstone without treating it as a corrupt entity', () => {
+    const tombstone = buildTombstone(highlight, 1_700_000_999_000);
+    const stored = readStoredEntity(JSON.parse(JSON.stringify(tombstone)));
+    expect(stored.status).toBe('deleted');
+    if (stored.status !== 'deleted') return;
+    expect(stored.tombstone.id).toBe(highlight.id);
+    expect(stored.tombstone.rev).toBe(highlight.rev + 1);
+    expect(stored.tombstone.payload).toBeNull();
+  });
+
+  it('fails closed on a newer schema, an unknown state and a malformed tombstone', () => {
+    expect(readStoredEntity({ ...highlight, schema: SCHEMA_VERSION + 1 }).status).toBe('invalid');
+    expect(readStoredEntity({ ...highlight, state: 'archived' }).status).toBe('invalid');
+    expect(readStoredEntity({ ...buildTombstone(highlight, 1), rev: 0 }).status).toBe('invalid');
+    expect(readStoredEntity('not an object').status).toBe('invalid');
+  });
+
+  it('reports the schema mismatch as needing a newer app', () => {
+    const stored = readStoredEntity({ ...highlight, schema: 99 }, 'qwb_hl_x');
+    expect(stored.status).toBe('invalid');
+    if (stored.status !== 'invalid') return;
+    expect(stored.errors.join(' ')).toContain('needs a newer app');
   });
 });

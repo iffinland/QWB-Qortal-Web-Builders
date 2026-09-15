@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BLOCK_MARKERS,
   assembleDraft,
+  blocksToValue,
   defaultValuesForKind,
   fieldsForKind,
   fieldsForSiteSlice,
   nextOrder,
+  parseBlocks,
   readFormValues,
   valuesForEntity,
 } from '../src/owner/fields';
@@ -13,7 +16,7 @@ import { renderFormBody } from '../src/owner/forms';
 import { loadContent } from './support/owner';
 import { validateEntity } from '../src/content/schema';
 import { generateIdentifier } from '../src/content/identifier';
-import type { AnyEntity, EntityKind } from '../src/content/schema';
+import type { AnyEntity, ArticleBlock, EntityKind, Inline } from '../src/content/schema';
 
 const KINDS: readonly EntityKind[] = ['highlight', 'service', 'step', 'work', 'price', 'article'];
 
@@ -179,11 +182,10 @@ describe('draft assembly', () => {
     expect(assembly.entity.payload.footer.credit).toEqual(content.site.payload.footer.credit);
   });
 
-  it('keeps a step illustration and an article body that the form cannot edit yet', async () => {
+  it('keeps a step illustration that only a published image can change', async () => {
     const content = await loadContent();
     const step = content.steps[0];
-    const article = content.articles[0];
-    if (step === undefined || article === undefined) throw new Error('missing seed entities');
+    if (step === undefined) throw new Error('missing seed step');
 
     const stepDraft = assembleDraft({
       kind: 'step',
@@ -194,22 +196,62 @@ describe('draft assembly', () => {
       order: step.order,
       now: 1,
     });
-    const articleDraft = assembleDraft({
-      kind: 'article',
-      values: valuesForEntity(article),
-      original: article,
-      site: content.site,
-      id: article.id,
-      order: article.order,
-      now: 1,
-    });
 
     expect(stepDraft.ok).toBe(true);
-    expect(articleDraft.ok).toBe(true);
     if (!stepDraft.ok || stepDraft.entity.kind !== 'step') return;
-    if (!articleDraft.ok || articleDraft.entity.kind !== 'article') return;
     expect(stepDraft.entity.payload.illustration).toEqual(step.payload.illustration);
-    expect(articleDraft.entity.payload.blocks).toEqual(article.payload.blocks);
+  });
+
+  it('round-trips every seed article body through the editor text losslessly', async () => {
+    const content = await loadContent();
+    expect(content.articles.length).toBeGreaterThan(1);
+
+    for (const article of content.articles) {
+      const draft = assembleDraft({
+        kind: 'article',
+        values: valuesForEntity(article),
+        original: article,
+        site: content.site,
+        id: article.id,
+        order: article.order,
+        now: 1,
+      });
+      expect(draft.ok, article.id).toBe(true);
+      if (!draft.ok || draft.entity.kind !== 'article') continue;
+      // Opening an article and saving it untouched must not rewrite a single link
+      // run: the editor is now editable, so it has to be lossless.
+      expect(draft.entity.payload.blocks, article.id).toEqual(article.payload.blocks);
+    }
+  });
+
+  it('round-trips a bullet that carries several inline link runs', () => {
+    const items: readonly Inline[] = [
+      [
+        { text: 'see ' },
+        { text: 'the docs', href: 'https://example.com/a' },
+        { text: ' and ' },
+        { text: 'the shop', href: 'qortal://APP/Q-Shop' },
+        { text: ' first' },
+      ],
+    ];
+    const blocks: readonly ArticleBlock[] = [{ type: 'bullets', items }];
+
+    const text = blocksToValue(blocks);
+    // One line per run, so a ` | ` separator is never ambiguous.
+    expect(text.split('\n')).toEqual([
+      `${BLOCK_MARKERS.bullet}see `,
+      `${BLOCK_MARKERS.bulletRun}the docs | https://example.com/a`,
+      `${BLOCK_MARKERS.bulletRun} and `,
+      `${BLOCK_MARKERS.bulletRun}the shop | qortal://APP/Q-Shop`,
+      `${BLOCK_MARKERS.bulletRun} first`,
+    ]);
+    expect(parseBlocks(text)).toEqual(blocks);
+  });
+
+  it('reports a stray bullet-continuation line instead of dropping it', () => {
+    const errors = { list: [] as string[] };
+    parseBlocks(`a paragraph\n${BLOCK_MARKERS.bulletRun}orphan run`, errors);
+    expect(errors.list.join(' ')).toContain('must follow');
   });
 });
 
@@ -235,19 +277,25 @@ describe('form rendering', () => {
     expect(html).toContain('disabled');
   });
 
-  it('renders the media affordance as disabled with an explanation', async () => {
+  it('renders the media affordance as an enabled file input that publishes first', async () => {
     const html = renderFormBody({
       fields: fieldsForKind('work'),
       values: defaultValuesForKind('work', (await loadContent()).site),
       title: 'New project',
       subtitle: 'subtitle',
       primaryLabel: 'Save & publish',
-      primaryDisabled: true,
     });
 
-    expect(html).toContain('data-qwb-media-replace');
-    expect(html).toMatch(/data-qwb-media-replace[^>]*disabled/);
-    expect(html).toContain('Phase 3');
+    expect(html).toContain('data-qwb-media="cover"');
+    expect(html).toContain('type="file"');
+    expect(html).toContain('accept="image/webp,image/jpeg,image/png"');
+    expect(html).not.toMatch(/data-qwb-media="cover"[^>]*disabled/);
+    // A per-field status line and the publish-before-the-item explanation.
+    expect(html).toContain('data-qwb-media-note="cover"');
+    expect(html).toContain('published to QDN before this item');
+    expect(html).toContain('No new image chosen');
+    // The form also carries the verify-before-claiming note.
+    expect(html).toContain('only reported as published after');
   });
 });
 

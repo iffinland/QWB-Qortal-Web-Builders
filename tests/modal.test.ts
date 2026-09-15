@@ -105,6 +105,40 @@ describe('modal shell', () => {
     expect(handle.open).toBe(false);
   });
 
+  it('closes from a footer cancel button', () => {
+    const handle = openModal({
+      title: 'Publishing status',
+      bodyHtml: '<p>nothing to do here</p>',
+      footerHtml: '<button type="button" data-qwb-modal-cancel>Close</button>',
+    });
+    const cancel = handle.footer.querySelector<HTMLButtonElement>('[data-qwb-modal-cancel]');
+    if (cancel === null) throw new Error('no cancel button');
+
+    cancel.click();
+
+    expect(handle.open).toBe(false);
+    expect(document.querySelector('.qwb-modal')).toBeNull();
+  });
+
+  it('routes a footer cancel button through the dirty guard', () => {
+    const handle = openModal({
+      title: 'Edit',
+      bodyHtml: '<input name="a">',
+      footerHtml: '<button type="button" data-qwb-modal-cancel>Cancel</button>',
+      dirty: () => true,
+    });
+    const cancel = handle.footer.querySelector<HTMLButtonElement>('[data-qwb-modal-cancel]');
+    if (cancel === null) throw new Error('no cancel button');
+
+    cancel.click();
+
+    // Still open, and asking — a cancel button must not silently drop the draft.
+    expect(handle.open).toBe(true);
+    expect(handle.root.textContent).toContain('Discard the changes in this form?');
+
+    handle.close();
+  });
+
   it('releases the document key handler and the scroll lock when every dialog closes at once', () => {
     const first = openModal({ title: 'Edit', bodyHtml: '<input name="a">', dirty: () => true });
     const second = openModal({ title: 'Edit', bodyHtml: '<input name="b">' });

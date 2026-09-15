@@ -31,6 +31,47 @@ export function identifierPrefixFor(kind: EntityKind): string {
   return KIND_PREFIX[kind];
 }
 
+/**
+ * QDN service each kind's payload is published in (audit §6.1, §5).
+ *
+ * `JSON` is the natural home for the small structured entities: the node validates
+ * that the payload parses and caps it at 25 KB, which also bounds what a visitor's
+ * page load has to fetch. Articles carry prose bodies and are the one kind the
+ * approved model puts in `DOCUMENT` (no node-side size limit), which is also what
+ * the reference app publishes its JSON records as.
+ *
+ * The service is a property of the *kind*, and the kind is encoded in the
+ * identifier prefix, so a read-back can always address the coordinate a write
+ * produced without carrying a second mapping around.
+ */
+const KIND_SERVICE: Readonly<Record<EntityKind, 'JSON' | 'DOCUMENT'>> = {
+  site: 'JSON',
+  highlight: 'JSON',
+  service: 'JSON',
+  step: 'JSON',
+  work: 'JSON',
+  price: 'JSON',
+  article: 'DOCUMENT',
+};
+
+export type EntityService = 'JSON' | 'DOCUMENT';
+
+export function serviceForKind(kind: EntityKind): EntityService {
+  return KIND_SERVICE[kind];
+}
+
+/**
+ * The service an already-published entity lives in, derived from its identifier.
+ * An identifier that carries no known kind prefix is read as `JSON` (the
+ * conservative default: it can only produce "not served", never a wrong match).
+ */
+export function serviceForIdentifier(identifier: string): EntityService {
+  for (const kind of Object.keys(KIND_PREFIX) as EntityKind[]) {
+    if (identifier.startsWith(KIND_PREFIX[kind])) return KIND_SERVICE[kind];
+  }
+  return 'JSON';
+}
+
 /** Approved identifier policy: lowercase `[a-z0-9_-]`, <= 60 characters. */
 export const MAX_IDENTIFIER_LENGTH = 60;
 
@@ -528,4 +569,101 @@ export function validateBundle(bundle: unknown): ValidationResult<ContentBundle>
       articles,
     },
   };
+}
+
+/* ------------------------------------------------------------------------ */
+/* Stored resources (read path)                                              */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * A logical tombstone: the approved delete model (audit §8.2). Qortal has no
+ * app-accessible QDN delete, so a delete republishes the **same** identifier with
+ * `state: 'deleted'`, a `rev` increment and a minimal retained envelope. The
+ * heavy kind-specific payload is dropped, which is why a tombstone is a distinct
+ * type and not a "deleted entity" of its own kind.
+ */
+export interface TombstoneEntity {
+  readonly schema: number;
+  readonly id: string;
+  readonly kind: EntityKind;
+  readonly rev: number;
+  readonly state: 'deleted';
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly deletedAt: number;
+  readonly order: number;
+  readonly title: string;
+  readonly payload: null;
+}
+
+/** Builds the payload a delete publishes for `entity`. Never reuses an id. */
+export function buildTombstone(entity: AnyEntity, now: number): TombstoneEntity {
+  return {
+    schema: SCHEMA_VERSION,
+    id: entity.id,
+    kind: entity.kind,
+    rev: entity.rev + 1,
+    state: 'deleted',
+    createdAt: entity.createdAt,
+    updatedAt: now,
+    deletedAt: now,
+    order: entity.order,
+    title: entity.title,
+    payload: null,
+  };
+}
+
+export type StoredEntity =
+  | { readonly status: 'active'; readonly entity: AnyEntity }
+  | { readonly status: 'deleted'; readonly tombstone: TombstoneEntity }
+  | { readonly status: 'invalid'; readonly errors: readonly string[] };
+
+/**
+ * Classifies one resource payload read from QDN.
+ *
+ * An `active` payload must satisfy the full active schema. A `deleted` payload is
+ * validated only for identity and revision, so a tombstone is recognised (and
+ * filtered) rather than reported as a corrupt entity. Any other `state`, an
+ * unknown `schema` version or a malformed envelope is `invalid`: the read path
+ * reports it and never guesses.
+ */
+export function readStoredEntity(value: unknown, path = 'entity'): StoredEntity {
+  if (!isRecord(value)) {
+    return { status: 'invalid', errors: [`${path}: expected an object`] };
+  }
+
+  if (value.schema !== SCHEMA_VERSION) {
+    return {
+      status: 'invalid',
+      errors: [
+        `${path}.schema: expected ${SCHEMA_VERSION}, received ${String(value.schema)} — this item needs a newer app`,
+      ],
+    };
+  }
+
+  if (value.state === 'deleted') {
+    const errors: string[] = [];
+    if (!isEntityKind(value.kind)) errors.push(`${path}.kind: unknown entity kind`);
+    if (!isNonEmptyString(value.id)) {
+      errors.push(`${path}.id: expected a non-empty identifier`);
+    } else if (isEntityKind(value.kind) && !value.id.startsWith(identifierPrefixFor(value.kind))) {
+      errors.push(`${path}.id: does not carry the ${value.kind} prefix`);
+    } else if (!isValidIdentifier(value.id)) {
+      errors.push(`${path}.id: expected lowercase [a-z0-9_-] and at most 60 characters`);
+    }
+    if (!isFiniteNumber(value.rev) || value.rev < 1) errors.push(`${path}.rev: expected >= 1`);
+    if (!isFiniteNumber(value.deletedAt)) errors.push(`${path}.deletedAt: expected a number`);
+    if (!isFiniteNumber(value.createdAt)) errors.push(`${path}.createdAt: expected a number`);
+    if (!isFiniteNumber(value.updatedAt)) errors.push(`${path}.updatedAt: expected a number`);
+    if (!isFiniteNumber(value.order)) errors.push(`${path}.order: expected a number`);
+    if (typeof value.title !== 'string') errors.push(`${path}.title: expected a string`);
+
+    if (errors.length > 0) return { status: 'invalid', errors };
+    return { status: 'deleted', tombstone: value as unknown as TombstoneEntity };
+  }
+
+  const active = validateEntity(value, path);
+  return active.ok
+    ? { status: 'active', entity: active.value }
+    : { status: 'invalid', errors: active.errors };
 }

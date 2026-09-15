@@ -120,14 +120,25 @@ function safeJson(value: unknown): string {
 /**
  * The bridge rejects with a plain object (`{error: …}`), a string, or an
  * `Error`. This collapses all three into a readable message.
+ *
+ * The node's own error bodies carry the readable part in `message` and a numeric
+ * code in `error` (verified live: a missing resource answers
+ * `{"error":1401,"message":"Couldn't find PUT transaction for name …"}`). Keeping
+ * both matters: the code is what callers classify on, and the message is what a
+ * human can act on. A resolved `{error}` object is treated exactly the same way,
+ * because the shim answers HTTP errors as a *resolved* parsed body.
  */
 export function rejectionMessage(value: unknown): string {
   if (typeof value === 'string') return value;
   if (value instanceof Error) return value.message;
   if (isRecord(value)) {
+    const detail =
+      typeof value.message === 'string' && value.message.trim() !== '' ? value.message : null;
     const error = value.error;
-    if (typeof error === 'string') return error;
-    if (error !== undefined) return safeJson(error);
+    if (typeof error === 'string') return detail === null ? error : `${error} (${detail})`;
+    if (error !== undefined)
+      return detail === null ? safeJson(error) : `${safeJson(error)} (${detail})`;
+    if (detail !== null) return detail;
   }
   if (value === undefined || value === null) return 'no error detail';
   return safeJson(value);

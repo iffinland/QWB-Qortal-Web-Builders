@@ -66,14 +66,6 @@ function addButtonRow(label: string): HTMLElement {
   return row;
 }
 
-/** Resolves the element a reorder moves, and whether it can move at all. */
-export function resolveMoveElement(host: HTMLElement, target: OwnerItemTarget): HTMLElement {
-  if (target.moveUnit === 'self') return host;
-  const parent = host.parentElement;
-  if (parent !== null && /\bcol-/.test(parent.className)) return parent;
-  return host;
-}
-
 export function mountOwnerControls(
   root: HTMLElement,
   targets: OwnerTargetMap,
@@ -119,7 +111,7 @@ export function mountOwnerControls(
               title: `Move ${label} earlier`,
               className: 'qwb-ctl-move',
               onClick: () => {
-                deps.flows.reorderEntity(target, 'up', resolveMoveElement(host, target));
+                deps.flows.reorderEntity(target, 'up');
               },
             }),
           );
@@ -132,7 +124,7 @@ export function mountOwnerControls(
               title: `Move ${label} later`,
               className: 'qwb-ctl-move',
               onClick: () => {
-                deps.flows.reorderEntity(target, 'down', resolveMoveElement(host, target));
+                deps.flows.reorderEntity(target, 'down');
               },
             }),
           );

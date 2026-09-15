@@ -25,7 +25,10 @@ import { createBridge } from '../../src/qortal/bridge';
 import type { OwnerSession } from '../../src/owner/session';
 import { createOwnerSession } from '../../src/owner/session';
 import { createDraftStore } from '../../src/owner/drafts';
+import { createWriteLog } from '../../src/owner/writes';
 import { createOwnerFlows } from '../../src/owner/flows';
+import type { ContentLoadResult } from '../../src/content/repository';
+import type { ImageEncoder } from '../../src/owner/media';
 import type { OwnerShell } from '../../src/owner/shell';
 import { createOwnerShell } from '../../src/owner/shell';
 
@@ -123,8 +126,9 @@ export interface OwnerHarness {
   readonly app: HTMLElement;
   readonly session: OwnerSession;
   readonly shell: OwnerShell;
-  readonly content: ContentBundle;
+  readonly content: () => ContentBundle;
   readonly drafts: ReturnType<typeof createDraftStore>;
+  readonly writes: ReturnType<typeof createWriteLog>;
   readonly rerenders: () => number;
   destroy(): void;
 }
@@ -135,10 +139,18 @@ export async function ownerHarness(options: {
   readonly bridge: QortalBridge;
   /** Runs before the shell attaches, e.g. to settle the boot check. */
   readonly beforeMount?: (session: OwnerSession) => Promise<void>;
+  /** Overrides the re-read the owner flows perform after a verified write. */
+  readonly loadContent?: () => Promise<ContentLoadResult>;
+  readonly encodeImage?: ImageEncoder;
+  /** Verification budget for the write pipeline (tests keep it at one attempt). */
+  readonly verifyAttempts?: number;
+  readonly verifyDelayMs?: number;
+  readonly initialContent?: ContentBundle;
 }): Promise<OwnerHarness> {
-  const content = await loadContent();
-  const app = mountApp(options.route, content);
+  const current = options.initialContent ?? (await loadContent());
+  const app = mountApp(options.route, current);
   const drafts = createDraftStore();
+  const writes = createWriteLog();
   const session = sessionFor({ app: options.app, bridge: options.bridge });
   let renders = 0;
   const rerender = (): void => {
@@ -147,14 +159,22 @@ export async function ownerHarness(options: {
   const flows = createOwnerFlows({
     session,
     drafts,
-    getContent: () => content,
+    writes,
+    getContent: () => current,
+    loadContent:
+      options.loadContent ??
+      (() => Promise.resolve({ status: 'ready' as const, bundle: current, diagnostics: [] })),
     requestRerender: rerender,
+    verifyAttempts: options.verifyAttempts ?? 1,
+    verifyDelayMs: options.verifyDelayMs ?? 0,
+    ...(options.encodeImage === undefined ? {} : { encodeImage: options.encodeImage }),
   });
   const shell = createOwnerShell({
     session,
     drafts,
+    writes,
     flows,
-    view: () => ({ route: options.route, content }),
+    view: () => ({ route: options.route, content: current }),
     requestRerender: rerender,
   });
 
@@ -165,8 +185,9 @@ export async function ownerHarness(options: {
     app,
     session,
     shell,
-    content,
+    content: () => current,
     drafts,
+    writes,
     rerenders: () => renders,
     destroy() {
       shell.destroy();

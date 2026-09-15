@@ -376,6 +376,101 @@ html.qwb-modal-open body {
   cursor: not-allowed;
 }
 
+/* Phase 3: the write-result surface. The status line is always a live region (set
+   in forms.ts), so these rules only have to make the three tones legible. */
+
+.qwb-form-status {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--border-radius-small);
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.qwb-form-status[hidden] {
+  display: none;
+}
+
+.qwb-form-status-info {
+  background-color: #eef6f5;
+  color: var(--qwb-owner-surface);
+}
+
+.qwb-form-status-ok {
+  background-color: #e7f6ec;
+  color: #14532d;
+}
+
+.qwb-form-status-warning {
+  background-color: var(--qwb-owner-warning-bg);
+  color: var(--qwb-owner-warning-text);
+}
+
+/* Multi-line editors and the list formats keep their own line breaks. */
+
+.qwb-input-lines {
+  min-height: 96px;
+  font-family: var(--body-font-family);
+  line-height: 1.5;
+}
+
+.qwb-input-blocks {
+  min-height: 200px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+/* The chosen image and its target service, described before anything publishes. */
+
+.qwb-input-file {
+  padding: 6px 8px;
+  background-color: #f4f6f7;
+  font-size: 13px;
+}
+
+.qwb-input-file::file-selector-button {
+  margin-right: 10px;
+  padding: 6px 12px;
+  border: 1px solid rgba(19, 84, 122, 0.25);
+  border-radius: var(--border-radius-small);
+  background-color: #eef6f5;
+  color: var(--qwb-owner-surface);
+  font-family: var(--body-font-family);
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.qwb-form-note {
+  margin-top: 10px;
+}
+
+.qwb-field-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+}
+
+.qwb-field-check .qwb-field-label {
+  margin: 0;
+}
+
+.qwb-checkbox {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+}
+
+.qwb-notice-info {
+  background-color: #eef6f5;
+  color: var(--qwb-owner-surface);
+}
+
 .qwb-form-result {
   margin-top: 12px;
   padding: 10px 12px;

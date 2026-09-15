@@ -14,6 +14,7 @@ import { closeAllModals } from '../ui/modal';
 import type { OwnerSession, OwnerSessionState } from './session';
 import type { DraftStore } from './drafts';
 import type { OwnerFlows } from './flows';
+import type { WriteLog } from './writes';
 import { mountOwnerBar } from './bar';
 import { mountOwnerControls } from './controls';
 import { ownerTargetsFor } from './targets';
@@ -21,6 +22,7 @@ import { ownerTargetsFor } from './targets';
 export interface OwnerShellDeps {
   readonly session: OwnerSession;
   readonly drafts: DraftStore;
+  readonly writes: WriteLog;
   readonly flows: OwnerFlows;
   readonly view: () => { readonly route: Route; readonly content: ContentBundle };
   readonly requestRerender: () => void;
@@ -78,6 +80,7 @@ export function createOwnerShell(deps: OwnerShellDeps): OwnerShell {
       session: deps.session,
       flows: deps.flows,
       drafts: deps.drafts,
+      writes: deps.writes,
       isExpanded: () => expanded,
       onToggleExpanded: () => {
         expanded = !expanded;

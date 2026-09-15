@@ -1,31 +1,32 @@
 /**
  * Phase gate.
  *
- * Phase 2 ships the owner **shell**: recognition, the owner bar, inline
- * affordances, the form/modal plumbing and dirty-state UX. It ships **no** QDN
- * write, so every mutation affordance must say so explicitly. These constants
- * exist so no flow can be written that quietly implies a save.
+ * Phase 3 connects the accepted Phase 2 owner UI to real QDN-backed content:
+ * bounded prefix discovery, an authoritative read path, publish/verify writes,
+ * QDN media, tombstones and persistent ordering.
  *
- * Phase 3 flips `QDN_WRITE_ENABLED` together with the publish/verify pipeline
- * (`src/qortal/write.ts`) and the QDN-backed `ContentSource`; the UI shells do
- * not change.
+ * The gate stays explicit so a build cannot silently drift back into a "looks
+ * saved" state: `QDN_WRITE_ENABLED` is the single switch the flows read, and the
+ * notices below are the exact words used when a surface cannot act.
  */
 
-export const OWNER_PHASE = 2;
+export const OWNER_PHASE = 3;
 
-/** No QDN publish/update/delete exists in this phase. */
-export const QDN_WRITE_ENABLED = false;
+/** QDN publish/update/tombstone writes are enabled in this phase. */
+export const QDN_WRITE_ENABLED = true;
 
-export const WRITE_DISABLED_NOTICE =
-  'Publishing is not enabled in this phase. Nothing you change here is saved or published — QDN persistence arrives in Phase 3.';
+export const WRITE_ENABLED_NOTICE =
+  'Saving publishes to the Qortal Data Network under this site’s own name. Each save is a signed transaction: the host asks for approval, and Qortal charges the usual publish fee.';
 
-export const WRITE_DISABLED_SHORT = 'Not saved (Phase 3 adds publishing)';
+export const WRITE_VERIFY_NOTE =
+  'The change is only reported as published after the app has read the resource back and confirmed the new revision.';
 
-export const DELETE_DISABLED_NOTICE =
-  'Deleting is not enabled in this phase. Nothing was changed and nothing was removed from the network.';
+/** Wording for media, which publishes first and is verified on its own. */
+export const MEDIA_NOTICE =
+  'A chosen image is downscaled in this browser and published as a QDN image resource under the item’s identifier, before the item itself.';
+
+export const DELETE_ENABLED_NOTICE =
+  'Deleting publishes a tombstone for the same identifier. The item disappears from the site, while the previously published bytes stay retrievable from the network — Qortal has no app-accessible QDN delete.';
 
 export const REORDER_NOTICE =
-  'Order changes are shown on this screen only. Nothing was saved or published — discard them when you are done.';
-
-export const MEDIA_DISABLED_NOTICE =
-  'Image publishing arrives with QDN media in Phase 3; the current image reference is shown read-only.';
+  'Order is persisted by republishing the moved item with a new order value, verified by reading it back.';

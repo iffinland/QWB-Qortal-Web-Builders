@@ -222,6 +222,16 @@ export function openModal(options: ModalOptions): ModalHandle {
   mustFind<HTMLElement>(dialog, '[data-qwb-modal-close]').addEventListener('click', () => {
     handle.requestClose();
   });
+  /*
+   * `data-qwb-modal-cancel` is the module's own contract for a footer cancel
+   * button, so a caller cannot ship one that looks like cancel and does nothing.
+   * It goes through `requestClose()`, i.e. the same dirty guard as Escape.
+   */
+  dialog.querySelectorAll<HTMLElement>('[data-qwb-modal-cancel]').forEach((element) => {
+    element.addEventListener('click', () => {
+      handle.requestClose();
+    });
+  });
   mustFind<HTMLElement>(guard, '[data-qwb-modal-discard]').addEventListener('click', () => {
     handle.close();
   });

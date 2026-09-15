@@ -31,15 +31,17 @@ written against, and keeping it is what makes the visual descent checkable.
 
 ```text
 index.html ──> src/main.ts
-                 ├── src/content/*      content: schema, seed, repository, media
+                 ├── src/content/*      content: schema, seed, repository, qdn-source,
+                 │                      ordering, media
                  ├── src/router.ts      hash → Route
                  ├── src/views/*        nav + view + footer → HTML string (+ mount hook)
                  ├── src/ui/*           escape/render helpers, images, navbar, skip link,
                  │                      scroll-to-top, owner modal host, owner toasts
                  ├── src/qortal/*       host boundary: injected globals, bridge, owner identity,
-                 │                      truthful write-result vocabulary
+                 │                      QDN read path, publish + read-back, base64, truthful
+                 │                      write-result vocabulary
                  ├── src/owner/*        owner layer: session, targets, controls, shell, flows,
-                 │                      forms/fields, drafts, phase gate
+                 │                      forms/fields, drafts, writes, media, phase gate
                  └── src/styles/*       tokens → theme → components → owner
 ```
 
@@ -52,9 +54,13 @@ Rules that keep the layers separable:
   owner layer attaches _after_ the shell renders and only finds its own attachment
   points in the finished DOM (`src/owner/targets.ts`), so no view knows owner mode
   exists and no view had to change for it.
-- **Content access is behind `ContentSource`.** Views never import `seed.ts`;
-  they receive a validated `ContentBundle`. Phase 3 replaces
-  `createSeedSource()` with a QDN-backed source and nothing else changes.
+- **Content access is behind `ContentSource`.** Views never import `seed.ts` or
+  `qdn-source.ts`; they receive a validated `ContentLoadResult`. Phase 3 replaced
+  the seed source by the QDN source and no view changed.
+- **QDN transport lives in `src/qortal/`.** `read.ts` (search/fetch/status),
+  `publish.ts` (request building, publish, read-back verification) and `base64.ts`
+  are the only modules that name a bridge action or call `qortalRequest`; asserted
+  by `tests/support/claims.ts`.
 - **Escaping happens in `src/ui/html.ts`.** Views build strings; every
   content-derived value passes through `escapeHtml`/`renderInline`. Owner-authored
   text is never injected as HTML. Phase 3 layered sanitised rich text goes on top
@@ -64,7 +70,7 @@ Rules that keep the layers separable:
   `q-apps.js` intercepts and blocks them inside a Qortal host, so they were dead
   in the published site.
 
-## 3. Owner layer (Phase 2)
+## 3. Owner layer (Phase 2) and persistence (Phase 3)
 
 The owner layer is additive: it renders **into** the public DOM, never through it.
 A visitor's markup is produced by exactly the Phase 1 render path and then nothing
@@ -111,27 +117,76 @@ mode`), plus inline affordances attached to the containers the views already emi
   and `controls.ts` compares the DOM count against the expected entity count per
   group: on a mismatch the group gets **no** controls and one diagnostic instead of
   a control attached to the wrong entity.
-- Owner mutations are DOM-only in this phase and are labelled as such everywhere;
-  the change count is tracked so the dirty/discard contract exists before writes do.
+- Every mutation affordance is wired to a real QDN write (Phase 3); the dirty
+  count in the form is tracked separately from the write log, so "unsaved draft"
+  never implies "not published".
 - Modals are `role="dialog"` + `aria-modal`, trap focus, restore it on close, ask
   before discarding a dirty form, and lock background scroll.
 
-### 3.3 What Phase 2 never does
+### 3.3 What the owner layer never does
 
-No QDN publish/update/delete, no media publishing, no derived index, no
-persistence of owner state. `src/owner/phase.ts` holds the gate
-(`QDN_WRITE_ENABLED === false`); the primary form action is rendered **disabled**
-with the reason next to it, and the only enabled action is `Validate draft`, which
-runs the real draft assembly and the read path's validator and then says explicitly
-that nothing was saved or published.
+No derived index, no persistence of owner state (nothing touches
+`localStorage`/`sessionStorage`/IndexedDB), no physical QDN delete through
+node-admin APIs, and no migration tooling. `src/owner/phase.ts` holds the gate
+(`QDN_WRITE_ENABLED`); the form's primary action publishes, and every surface
+states whether the result is submitted, verified, rejected or unresolved.
 
-`src/qortal/write.ts` still exists, because the classifier had to be designed
-before any write path exists: it keeps "the host accepted a submission" distinct
-from "the resource is served" (`submitted | rejected | ambiguous | failed`, with
-availability always `unverified` in this phase) and holds the tombstone wording a
-delete must use. `tests/support/claims.ts` scans the shipped source for
-write-capable bridge actions outside the transport modules and for persistence
-APIs, so a Phase-2 UI cannot quietly gain the vocabulary of a save.
+`src/qortal/write.ts` keeps "the host accepted a submission" distinct from "the
+resource is served": a write is classified `submitted | rejected | ambiguous |
+failed`, and the availability (`verified | superseded | not-yet-served |
+unverified`) is a _separate_ fact that only a successful read-back can set. The
+state label never folds in availability — doing so produced the contradiction
+"…availability not yet verified (verified)". `tests/support/claims.ts` scans the
+shipped source for bridge action names or direct `qortalRequest` use outside
+`src/qortal/` and for persistence APIs, so no UI module can grow its own transport.
+
+### 3.4 Persistence contract (Phase 3)
+
+**Read.** The site singleton is one exact read of `qwb_site_v1` in `JSON`; every
+other kind is one bounded `SEARCH_QDN_RESOURCES` in that kind's own service
+(`identifier` = kind prefix, `prefix: true`, `mode: 'ALL'` — the node default
+`LATEST` keeps only one row per `(name, service)`, `names: [name]` +
+`exactMatchNames: true`, `includeStatus`, `excludeBlocked`), paged ≤ 3 × 50 with
+`reverse: true`, then hydrated at concurrency 4. Every summary is re-filtered on
+**exact** name, service and identifier prefix before it is trusted, because the
+node's filters are a convenience and not the authority. Payloads pass the same
+validator the seed path uses.
+
+`status: 'ready' | 'partial' | 'error'` is the read result; diagnostics name every
+item that was found but could not be used. Seed fallback is narrow by design: (1)
+no publishing identity or no bridge, (2) nothing published under the name at all,
+(3) the site singleton alone unreadable (seed shell + diagnostic). The seed is
+never substituted for entities that exist and failed to load.
+
+**Write.** Publishing identity is the injected `_qdnName`; the coordinate is
+`(name, service, identifier)` and Core keeps the newest transaction for it, with no
+compare-and-swap:
+
+| Action           | What is published                                                                                                                                                |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Add / Edit       | the entity with `rev + 1` (same identifier)                                                                                                                      |
+| Reorder          | only the moved entity, with a sparse midpoint `order` (`ordering.ts`); a renumber in `ORDER_GAP` steps is the fallback and reports how many items it republished |
+| Delete           | a `state: 'deleted'` tombstone for the same identifier — the previous bytes stay retrievable                                                                     |
+| Replace an image | the image first (`THUMBNAIL`/`IMAGE`, same identifier as the entity), verified, then the entity                                                                  |
+
+Verification is a re-read of the same coordinate with the served `rev` compared
+against the submitted one (4 attempts × 5 s, terminal on verified/superseded).
+Media under `MEDIA_BYTE_COMPARE_LIMIT` decoded bytes is verified by byte identity;
+above it the node's `GET_QDN_RESOURCE_STATUS` is used, and the wording says that
+byte identity was not compared.
+
+**Interlocks.** One in-flight write per identifier (`owner/writes.ts`); no
+automatic retry of any ambiguous or unverified write; drafts live in the open form
+and survive rejected, failed and ambiguous writes; every flow re-derives owner mode
+immediately before a write and re-checks the lock after that await.
+
+**Service per kind.** `JSON` for `site`, `highlight`, `service`, `step`, `work` and
+`price` (≤ 25 KB, node-validated JSON); `DOCUMENT` for `article` (no node-side
+limit; this app bounds the payload at `DOCUMENT_MAX_BYTES` because every visitor
+read of the kind fetches the payload). The service is a function of the kind and the
+kind is encoded in the identifier prefix (`serviceForKind` / `serviceForIdentifier`
+in `schema.ts`), so a read-back can never address a different service than the write
+used.
 
 ## 4. Routes
 
@@ -174,28 +229,36 @@ app's own name. The common envelope:
 
 Kinds and identifier prefixes:
 
-| Kind        | Service               | Identifier                                         | Singleton |
-| ----------- | --------------------- | -------------------------------------------------- | --------- |
-| `site`      | `JSON`                | `qwb_site_v1` (fixed)                              | yes       |
-| `highlight` | `JSON`                | `qwb_hl_*`                                         | no        |
-| `service`   | `JSON`                | `qwb_svc_*`                                        | no        |
-| `step`      | `JSON`                | `qwb_step_*`                                       | no        |
-| `work`      | `JSON`                | `qwb_work_*`                                       | no        |
-| `price`     | `JSON`                | `qwb_price_*`                                      | no        |
-| `article`   | `DOCUMENT`            | `qwb_post_*`                                       | no        |
-| media       | `THUMBNAIL` / `IMAGE` | owning entity's identifier (`<id>_<n>` for extras) | —         |
+| Kind        | Service               | Identifier                                                     | Singleton |
+| ----------- | --------------------- | -------------------------------------------------------------- | --------- |
+| `site`      | `JSON`                | `qwb_site_v1` (fixed)                                          | yes       |
+| `highlight` | `JSON`                | `qwb_hl_*`                                                     | no        |
+| `service`   | `JSON`                | `qwb_svc_*`                                                    | no        |
+| `step`      | `JSON`                | `qwb_step_*`                                                   | no        |
+| `work`      | `JSON`                | `qwb_work_*`                                                   | no        |
+| `price`     | `JSON`                | `qwb_price_*`                                                  | no        |
+| `article`   | `DOCUMENT`            | `qwb_post_*`                                                   | no        |
+| media       | `THUMBNAIL` / `IMAGE` | owning entity's identifier (v1 publishes one image per entity) | —         |
 
 **Identifier policy.** Lowercase `[a-z0-9_-]`, max 60 characters, kind-prefixed,
 timestamp-suffixed, and **never reused** — an identifier is the entity's permanent
 identity, Core has no rename, and re-publishing under a new identifier orphans the
 old bytes. Enforced by `isValidIdentifier()` and asserted in `tests/schema.test.ts`.
+The add flow mints one identifier per opened form, re-uses it for every submit of
+that form, and re-mints if the candidate already exists in the loaded content.
+
+**Service per kind.** The service is a function of the kind (`serviceForKind`) and
+is recoverable from the identifier prefix (`serviceForIdentifier`), so discovery,
+publish and read-back cannot disagree about where an entity lives.
 
 **Deletion is logical.** There is no app-accessible QDN delete, so a delete is a
 republished `state: 'deleted'` with `deletedAt` set. `activeEntities()` filters
 tombstones on every read path (`repository.ts`), which is why the filter exists in
 Phase 1 even though nothing writes yet.
 
-**Ordering** is deterministic: sparse `order`, then `createdAt`, then `id`.
+**Ordering** is deterministic (sparse `order`, then `createdAt`, then `id`) and
+persistent: `ordering.ts` plans one midpoint write per move and falls back to a gap
+renumber (`ORDER_GAP`) when the gap is no longer representable.
 
 **Media references** are explicit (`bundled` / `qdn` / `placeholder`) and resolved
 to a URL only at render time. QDN media is requested through an **absolute**
@@ -203,10 +266,17 @@ to a URL only at render time. QDN media is requested through an **absolute**
 against the frame's `<base href>` and return the app shell HTML instead of the
 image. Publishing order is always media → entity.
 
-**Seed content** (`src/content/seed.ts`) is typed mock content: the published
-structure with the repositioned message, the owner's real published portfolio list
-and price points, and `placeholder` covers. There is no import or migration of the
-old markup, and no migration script exists by design.
+**Seed content** (`src/content/seed.ts`) is typed content: the published structure
+with the repositioned message, the owner's real published portfolio list and price
+points, and `placeholder` covers. From Phase 3 it is the read fallback (see §3.4)
+and the design reference the QDN read path is compared against. There is no import
+or migration of the old markup, and no migration script exists by design.
+
+**Article bodies are structured blocks**, not HTML: headings, paragraphs, lists,
+quotes, images and links are modelled as data and rendered through the same
+escaping helpers as everything else. The audit's §6.1 field list said "sanitised
+HTML"; storing blocks means the sanitising step does not exist, and a stored
+payload can never introduce markup.
 
 ## 6. Style layers
 
@@ -231,7 +301,7 @@ tail whose global `p{}` rule capitalised and shrank every paragraph.
 | Phase                                  | What changes                                                                                                                                                                                   | What must not change                                                          |
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | 2 — owner recognition + owner UI shell | **done**: new `src/qortal/` modules (context, bridge, identity, write vocabulary) and `src/owner/` (session, targets, controls, bar, shell, flows, fields/forms, drafts); modal/toast plumbing | the `View` interface, the content schema, the rendered public HTML            |
-| 3 — QDN-backed CRUD + media            | `createSeedSource()` is replaced by a QDN-backed `ContentSource`; writes with `rev` verification; media publish pipeline                                                                       | the view modules — they only ever see `ContentLoadResult`                     |
+| 3 — QDN-backed CRUD + media            | **done (code)**: QDN-backed `ContentSource`, publish/verify writes with `rev` comparison, media pipeline, tombstones, persistent ordering                                                      | the view modules — they only ever see `ContentLoadResult`                     |
 | 4 — owner-runtime validation           | owner publishes real content in a real host; contrast/accessibility pass; visual regression against the Phase 1 baseline                                                                       | the Phase 1 visual baseline (regressions are recorded, not silently absorbed) |
 
 Deferred by default (not in Phases 0–4): a derived index, rich text beyond
@@ -240,8 +310,9 @@ dashboard.
 
 ## 8. Deliberate non-goals in this repository
 
-QDN reads or writes; media publishing; any real Add/Edit/Delete persistence; a
-derived index; migration/import tooling; deployment or publication; skills
-promotion. Phase 2 ships the owner **shell** only: the forms, validators and
-identifiers a write would need exist and are exercised, but no code path can
-publish. No QDN write is authorized by the presence of this code.
+A derived index; migration/import tooling; deployment or publication; a physical
+QDN delete (there is no app-accessible one); automatic retries of ambiguous writes;
+republishing the `WEBSITE` resource itself; skills promotion before owner-runtime
+evidence. Phase 3 ships the read/write code but has **not** been exercised against
+a live node — that is the Phase 4 staging run, and no runtime PASS may be claimed
+before it.

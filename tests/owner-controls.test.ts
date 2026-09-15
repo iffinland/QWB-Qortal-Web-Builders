@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ownerTargetsFor } from '../src/owner/targets';
 import { createOwnerFlows } from '../src/owner/flows';
 import { createDraftStore } from '../src/owner/drafts';
-import { mountOwnerControls, resolveMoveElement } from '../src/owner/controls';
+import { createWriteLog } from '../src/owner/writes';
+import { mountOwnerControls } from '../src/owner/controls';
 import type { AppIdentity } from '../src/qortal/context';
 import {
   bridgeForAccount,
@@ -97,7 +98,10 @@ describe('inline owner controls', () => {
     const flows = createOwnerFlows({
       session,
       drafts: createDraftStore(),
+      writes: createWriteLog(),
       getContent: () => content,
+      loadContent: () =>
+        Promise.resolve({ status: 'ready' as const, bundle: content, diagnostics: [] }),
       requestRerender: () => undefined,
     });
 
@@ -134,7 +138,10 @@ describe('inline owner controls', () => {
     const flows = createOwnerFlows({
       session,
       drafts: createDraftStore(),
+      writes: createWriteLog(),
       getContent: () => content,
+      loadContent: () =>
+        Promise.resolve({ status: 'ready' as const, bundle: content, diagnostics: [] }),
       requestRerender: () => undefined,
     });
 
@@ -144,27 +151,6 @@ describe('inline owner controls', () => {
     expect(app.querySelector('[aria-label^="Edit highlights:"]')).toBeNull();
     // Other groups still work.
     expect(app.querySelector('[aria-label^="Edit prices:"]')).not.toBeNull();
-  });
-
-  it('resolves the grid column as the reorder unit for card groups', async () => {
-    const content = await loadContent();
-    const app = mountApp({ kind: 'home' }, content);
-    const targets = ownerTargetsFor({ kind: 'home' }, content);
-    const card = targets.items.find((item) => item.groupKey === 'highlights');
-    const price = targets.items.find((item) => item.groupKey === 'prices');
-    if (card === undefined || price === undefined) throw new Error('missing targets');
-
-    const cardHost = app.querySelector<HTMLElement>('#section_featured article.custom-block');
-    const priceHost = app.querySelector<HTMLElement>('#section_3 article.pricing-box');
-    if (cardHost === null || priceHost === null) throw new Error('missing hosts');
-
-    // The card group moves its grid column (the card itself is the only child).
-    const moveUnit = resolveMoveElement(cardHost, card);
-    expect(moveUnit).not.toBe(cardHost);
-    expect(moveUnit.className).toMatch(/\bcol-/);
-    expect(moveUnit.contains(cardHost)).toBe(true);
-    // Pricing boxes move themselves; there is no per-item grid column.
-    expect(resolveMoveElement(priceHost, price)).toBe(priceHost);
   });
 
   it('opens the edit form from an inline control when the session is owner', async () => {
@@ -178,7 +164,10 @@ describe('inline owner controls', () => {
     const flows = createOwnerFlows({
       session,
       drafts: createDraftStore(),
+      writes: createWriteLog(),
       getContent: () => content,
+      loadContent: () =>
+        Promise.resolve({ status: 'ready' as const, bundle: content, diagnostics: [] }),
       requestRerender: () => undefined,
     });
     mountOwnerControls(app, targets, { flows, drafts: createDraftStore() });

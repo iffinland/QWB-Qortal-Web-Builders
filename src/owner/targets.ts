@@ -7,6 +7,9 @@
  * (`id="section_1"`, `#panel-1 …`, `article.custom-block`, `article.pricing-box`,
  * `.works-section`, `.posts-section`, `header.site-header`).
  *
+ * Ordering is persisted by republishing an entity (`content/ordering.ts`), not by
+ * moving DOM nodes, so a target describes only where the controls attach.
+ *
  * Each target therefore carries a selector **plus its index among the matches**
  * and is paired with the entity list in the same order the view rendered it.
  * `mountOwnerControls` verifies the DOM count against the expected count for
@@ -42,12 +45,6 @@ export interface OwnerItemTarget {
   readonly hostSelector: string;
   readonly hostIndex: number;
   readonly controls: readonly OwnerItemControl[];
-  /**
-   * Which element a reorder actually moves: a card is wrapped in its own grid
-   * column (`div.col-*`), so moving the card inside the column would change
-   * nothing on screen. Bullet lines and pricing boxes move themselves.
-   */
-  readonly moveUnit: 'self' | 'column';
 }
 
 export interface OwnerAddTarget {
@@ -85,7 +82,6 @@ function itemsFor<E extends { readonly id: string; readonly title: string }>(
     readonly groupKey: string;
     readonly hostSelector: string;
     readonly controls?: readonly OwnerItemControl[];
-    readonly moveUnit?: 'self' | 'column';
   },
 ): readonly OwnerItemTarget[] {
   return entities.map((entity, index) => ({
@@ -97,7 +93,6 @@ function itemsFor<E extends { readonly id: string; readonly title: string }>(
     hostSelector: options.hostSelector,
     hostIndex: index,
     controls: options.controls ?? CARD_CONTROLS,
-    moveUnit: options.moveUnit ?? 'column',
   }));
 }
 
@@ -125,13 +120,11 @@ function homeTargets(content: ContentBundle): OwnerTargetMap {
       kind: 'service',
       groupKey: 'services',
       hostSelector: '#panel-3 .custom-block ul > li',
-      moveUnit: 'self',
     }),
     ...itemsFor(content.prices, {
       kind: 'price',
       groupKey: 'prices',
       hostSelector: '#section_3 article.pricing-box',
-      moveUnit: 'self',
     }),
   ];
 
@@ -267,7 +260,6 @@ function postTargets(article: ContentBundle['articles'][number]): OwnerTargetMap
       groupKey: 'article-header',
       hostSelector: 'header.site-header > .container',
       controls: ['edit', 'delete'],
-      moveUnit: 'self',
     }),
     adds: [],
     expectedCounts: { 'article-header': 1 },

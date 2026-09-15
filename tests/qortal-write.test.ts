@@ -78,7 +78,15 @@ describe('publish outcome classification', () => {
       expect(WRITE_STATE_LABEL[state]).not.toMatch(/saved|published successfully|live/i);
       expect(WRITE_STATE_DESCRIPTION[state].length).toBeGreaterThan(20);
     }
-    expect(WRITE_STATE_LABEL.submitted).toContain('availability not yet verified');
+    // A state label must not fold in the availability: the two are reported
+    // separately, and combining them is what produced "…not yet verified (verified)".
+    expect(WRITE_STATE_LABEL.submitted).toContain('Submitted to the host');
+    for (const state of ['submitted', 'rejected', 'ambiguous', 'failed'] as const) {
+      expect(WRITE_STATE_LABEL[state]).not.toMatch(/verified|available/i);
+    }
+    // Ambiguity has two shapes — a host that timed out and a host that answered
+    // without a signature — so the label may not claim the timeout one.
+    expect(WRITE_STATE_LABEL.ambiguous).not.toMatch(/timed out|in time|timeout/i);
   });
 });
 

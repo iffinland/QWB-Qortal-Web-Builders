@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { generateIdentifier, slugifyTitle } from '../src/content/identifier';
+import { MINT_ATTEMPTS, generateIdentifier, slugifyTitle } from '../src/content/identifier';
 import { MAX_IDENTIFIER_LENGTH, isValidIdentifier } from '../src/content/schema';
 
 describe('identifier generation', () => {
@@ -27,6 +27,36 @@ describe('identifier generation', () => {
   ] as const)('uses the %s prefix', (kind, prefix) => {
     const id = generateIdentifier(kind, 'A title', { now: 1, random: () => 0 });
     expect(id.startsWith(prefix)).toBe(true);
+  });
+
+  it('re-mints when the caller reports the candidate is already in use', () => {
+    const draws = [0.1, 0.7, 0.9];
+    let index = 0;
+    const id = generateIdentifier('work', 'Project one', {
+      now: 1789430400000,
+      random: () => draws[Math.min(index++, draws.length - 1)] ?? 0,
+      taken: (candidate) => candidate.endsWith('1'),
+    });
+
+    expect(index).toBeGreaterThan(1);
+    expect(id.endsWith('1')).toBe(false);
+    expect(isValidIdentifier(id)).toBe(true);
+  });
+
+  it('stops re-minting rather than looping forever', () => {
+    let draws = 0;
+    const id = generateIdentifier('work', 'Project one', {
+      now: 1789430400000,
+      random: () => {
+        draws += 1;
+        return 0.5;
+      },
+      taken: () => true,
+    });
+
+    // Four random draws build one four-character suffix, so five attempts is 20.
+    expect(draws).toBe(MINT_ATTEMPTS * 4);
+    expect(isValidIdentifier(id)).toBe(true);
   });
 
   it('stays within the identifier limit for very long titles', () => {

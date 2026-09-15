@@ -84,6 +84,15 @@ describe('bridge wrapper', () => {
     expect(rejectionMessage(new Error('boom'))).toBe('boom');
     expect(rejectionMessage({ error: 'nested' })).toBe('nested');
     expect(rejectionMessage({ error: { code: 7 } })).toBe('{"code":7}');
+    // The node's own 404 body keeps both the code (classifiable) and the message
+    // (readable) — verified live against Core's arbitrary resource endpoint.
+    const notFound = rejectionMessage({
+      error: 1401,
+      message: "Couldn't find PUT transaction for name X, service JSON and identifier Y",
+    });
+    expect(notFound).toContain('1401');
+    expect(notFound).toContain("Couldn't find PUT transaction");
+    expect(rejectionMessage({ message: 'only a message' })).toBe('only a message');
     expect(rejectionMessage(undefined)).toBe('no error detail');
   });
 

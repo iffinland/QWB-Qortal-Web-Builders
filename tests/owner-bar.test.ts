@@ -103,10 +103,17 @@ describe('owner bar', () => {
     expect(bar.textContent).toContain('Owner mode');
     expect(bar.textContent).toContain(OWNER_NAME);
     expect(bar.textContent).toContain('verified by name ownership');
-    expect(barBody(h.app).textContent).toContain('Publishing: off (Phase 2)');
-    expect(barBody(h.app).textContent).toContain('nothing is saved or published');
-    expect(barBody(h.app).textContent).toContain('No unsaved changes');
+    // Phase 3: the bar reports the real publishing name and the session's writes.
+    expect(barBody(h.app).textContent).toContain('Publishing to QDN under');
+    expect(barBody(h.app).textContent).toContain(OWNER_NAME);
+    expect(barBody(h.app).textContent).toContain('no writes in this session');
+    // A settled write states its availability as its own fact, so the line can never
+    // read "…availability not yet verified (verified)" — see the settled-write test.
+    expect(barBody(h.app).textContent).not.toContain('(availability:');
+    expect(barBody(h.app).textContent).toContain('No unsaved drafts');
     expect(barButton(h.app, 'Publishing status')).toBeInstanceOf(HTMLButtonElement);
+    expect(barButton(h.app, 'Reload content')).toBeInstanceOf(HTMLButtonElement);
+    expect(barButton(h.app, 'Check last write')).toBeInstanceOf(HTMLButtonElement);
     expect(barButton(h.app, 'Re-check owner mode')).toBeInstanceOf(HTMLButtonElement);
 
     h.destroy();
@@ -144,6 +151,31 @@ describe('owner bar', () => {
     barButton(h.app, 'Show owner tools').click();
     expect(barBody(h.app).hasAttribute('hidden')).toBe(false);
 
+    h.destroy();
+  });
+
+  it('reports a settled write without contradicting itself', async () => {
+    const h = await ownerWithBar();
+    const id = h.content().highlights[0]?.id ?? 'qwb_hl_x';
+    // Drive the same log the flows drive, then read the bar's live line.
+    h.writes.begin({
+      key: id,
+      label: 'Featured card',
+      kind: 'highlight',
+      expectedRev: 2,
+    });
+    h.writes.settle(id, {
+      state: 'submitted',
+      availability: 'verified',
+      detail: 'the node serves revision 2',
+      servedRev: 2,
+    });
+    await settle();
+
+    const line = barBody(h.app).textContent ?? '';
+    expect(line).toContain('Submitted to the host');
+    expect(line).toContain('(availability: verified)');
+    expect(line).not.toContain('not yet verified (verified)');
     h.destroy();
   });
 

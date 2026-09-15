@@ -13,12 +13,14 @@
 
 import type {
   AnyEntity,
+  ArticleBlock,
   ArticlePayload,
   ContentBundle,
   EntityKind,
   HighlightPayload,
   ImageRef,
   Inline,
+  InlineSegment,
   LinkRef,
   PricePayload,
   ServicePayload,
@@ -30,7 +32,17 @@ import { SCHEMA_VERSION, validateEntity } from '../content/schema';
 import type { SiteSlice } from './targets';
 
 export type FieldType =
-  'text' | 'textarea' | 'lines' | 'pairs' | 'boolean' | 'select' | 'image' | 'readonly';
+  'text' | 'textarea' | 'lines' | 'pairs' | 'blocks' | 'boolean' | 'select' | 'image' | 'readonly';
+
+/** Line-format markers of the structured article body editor (`parseBlocks`). */
+export const BLOCK_MARKERS = {
+  heading: '## ',
+  bullet: '- ',
+  /** A further inline run of the bullet above (see `blocksToValue`). */
+  bulletRun: '+ ',
+  note: '> ',
+  noteAction: '>> ',
+} as const;
 
 export interface FieldOption {
   readonly value: string;
@@ -64,6 +76,22 @@ const IMAGE_FIELD = (name: string, label: string, help: string): FieldDescriptor
   type: 'image',
   help,
 });
+
+/**
+ * The article body is authored as text and stored as the typed block model, so
+ * the renderer keeps escaping its own output and no HTML ever becomes content:
+ *
+ * ```
+ *   ## A heading          heading block
+ *   - a bullet            one bullets block for consecutive `- ` lines
+ *   - link bullet | #/x   bullet with a link target
+ *   > a note              note block
+ *   >> label | href       optional action on the preceding note
+ *   anything else         paragraph
+ * ```
+ */
+const BLOCKS_HELP =
+  'One block per line: “## ” heading, “- ” bullet (add “ | target” for a link; a bullet showing several links keeps one “+ ” line per extra link run), “> ” note (add a “>> label | target” line for its action), any other line is a paragraph.';
 
 export function fieldsForKind(kind: EntityKind): readonly FieldDescriptor[] {
   switch (kind) {
@@ -103,7 +131,11 @@ export function fieldsForKind(kind: EntityKind): readonly FieldDescriptor[] {
       return [
         { name: 'title', label: 'Step title', type: 'text', maxLength: 80 },
         { name: 'description', label: 'Description', type: 'textarea', rows: 3, maxLength: 400 },
-        IMAGE_FIELD('illustration', 'Illustration', 'Image publishing arrives in Phase 3.'),
+        IMAGE_FIELD(
+          'illustration',
+          'Illustration',
+          'The current image stays unless you choose a new file; a new image is published to QDN before this item.',
+        ),
         { name: 'illustration.alt', label: 'Image alt text', type: 'text', maxLength: 160 },
         { name: 'link.label', label: 'Link label', type: 'text', maxLength: LINK_LABEL_MAX },
         { name: 'link.href', label: 'Link target', type: 'text', maxLength: LINK_HREF_MAX },
@@ -120,7 +152,11 @@ export function fieldsForKind(kind: EntityKind): readonly FieldDescriptor[] {
           help: 'One per line as: label | target. The first link is the card button.',
         },
         { name: 'featured', label: 'Featured on the home page', type: 'boolean' },
-        IMAGE_FIELD('cover', 'Cover image', 'Image publishing arrives in Phase 3.'),
+        IMAGE_FIELD(
+          'cover',
+          'Cover image',
+          'The current image stays unless you choose a new file; a new image is published to QDN before this item.',
+        ),
         { name: 'cover.alt', label: 'Cover alt text', type: 'text', maxLength: 160 },
       ];
     case 'price':
@@ -148,13 +184,18 @@ export function fieldsForKind(kind: EntityKind): readonly FieldDescriptor[] {
         },
         { name: 'summary', label: 'Summary', type: 'textarea', rows: 3, maxLength: 400 },
         { name: 'tags', label: 'Tags', type: 'lines', help: 'One tag per line.' },
-        IMAGE_FIELD('heroImage', 'Hero image', 'Image publishing arrives in Phase 3.'),
+        IMAGE_FIELD(
+          'heroImage',
+          'Hero image',
+          'The current image stays unless you choose a new file; a new image is published to QDN before this item.',
+        ),
         { name: 'heroImage.alt', label: 'Hero alt text', type: 'text', maxLength: 160 },
         {
           name: 'blocks',
           label: 'Article body',
-          type: 'readonly',
-          help: 'Body editing arrives with the sanitised rich-text editor in Phase 3. The current block count is shown.',
+          type: 'blocks',
+          rows: 12,
+          help: BLOCKS_HELP,
         },
       ];
     // Site editing is exposed per slice (`fieldsForSiteSlice`); the `site`
@@ -324,7 +365,7 @@ export function valuesForEntity(entity: AnyEntity): FormValues {
         tags: linesToValue(entity.payload.tags),
         heroImage: imageSummary(entity.payload.heroImage),
         'heroImage.alt': entity.payload.heroImage.alt,
-        blocks: `${String(entity.payload.blocks.length)} content block(s)`,
+        blocks: blocksToValue(entity.payload.blocks),
       };
   }
 }
@@ -385,7 +426,8 @@ export function defaultValuesForKind(kind: EntityKind, site: ContentBundle['site
         tags: 'design',
         heroImage: 'placeholder cover: New article',
         'heroImage.alt': 'Cover image for the new article',
-        blocks: '1 content block(s)',
+        blocks:
+          'A short introduction to the article.\n## What this covers\n- the first point\n- the second point',
       };
     case 'site':
       return valuesForEntity(site);
@@ -475,6 +517,162 @@ function parseInlineSegments(value: string): Inline {
     });
 }
 
+/* -------------------------------------------------------------------------- */
+/* Article body <-> text                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The text after `marker`, taken from the **untrimmed** line so whitespace inside
+ * a run survives. `String.trim()` is exactly what would corrupt a run that ends in
+ * a space.
+ */
+function runAfterMarker(raw: string, marker: string): string {
+  const start = raw.indexOf(marker);
+  return start === -1 ? '' : raw.slice(start + marker.length);
+}
+
+/**
+ * One bullet line as **one** inline run, preserving the run's text exactly.
+ *
+ * Whitespace is significant here: `renderInline` concatenates the runs of a
+ * bullet, and the seed body depends on it (“…through ” followed by a linked
+ * “Q-Mail”). Only the single space the writer inserts around the `|` separator
+ * is removed, which is exactly reversible for any run text.
+ *
+ * The residual ambiguity is a plain-text run that itself ends with ` | <target>`;
+ * that is read as a link, as the editor format documents.
+ */
+function runFromLine(text: string): InlineSegment {
+  const separator = text.lastIndexOf('|');
+  if (separator === -1) return { text };
+  const href = text.slice(separator + 1).replace(/^\s+/, '');
+  if (!looksLikeTarget(href)) return { text };
+  const head = text.slice(0, separator).replace(/ $/, '');
+  return head === '' ? { text: href } : { text: head, href };
+}
+
+/** `Inline` is a readonly array: a continuation run extends the item it belongs to. */
+function withRun(item: Inline, run: InlineSegment): Inline {
+  return [...item, run];
+}
+
+/**
+ * Parses the article body text into the typed block model. Malformed input is a
+ * field error, never a silently dropped block.
+ */
+export function parseBlocks(value: string, errors?: { list: string[] }): readonly ArticleBlock[] {
+  const blocks: ArticleBlock[] = [];
+  let bullets: Inline[] = [];
+
+  const flush = (): void => {
+    if (bullets.length > 0) {
+      blocks.push({ type: 'bullets', items: bullets });
+      bullets = [];
+    }
+  };
+
+  for (const raw of value.split('\n')) {
+    const line = raw.trim();
+    if (line === '') {
+      flush();
+      continue;
+    }
+    if (line.startsWith(BLOCK_MARKERS.noteAction)) {
+      const previous = blocks[blocks.length - 1];
+      const body = line.slice(BLOCK_MARKERS.noteAction.length).trim();
+      const separator = body.lastIndexOf('|');
+      if (previous === undefined || previous.type !== 'note' || separator === -1) {
+        errors?.list.push(
+          `Article body: “${BLOCK_MARKERS.noteAction.trim()}” must follow a note and read “label | target”`,
+        );
+        continue;
+      }
+      const label = body.slice(0, separator).trim();
+      const href = body.slice(separator + 1).trim();
+      if (label === '' || href === '') {
+        errors?.list.push('Article body: the note action needs both a label and a target');
+        continue;
+      }
+      blocks[blocks.length - 1] = { ...previous, action: { label, href } };
+      continue;
+    }
+    if (line.startsWith(BLOCK_MARKERS.heading)) {
+      flush();
+      const text = line.slice(BLOCK_MARKERS.heading.length).trim();
+      if (text === '') errors?.list.push('Article body: a heading needs text');
+      else blocks.push({ type: 'heading', text });
+      continue;
+    }
+    if (line.startsWith(BLOCK_MARKERS.bulletRun)) {
+      // A further run of the bullet above: everything after the marker is literal.
+      const previous = bullets[bullets.length - 1];
+      if (previous === undefined) {
+        errors?.list.push(
+          `Article body: “${BLOCK_MARKERS.bulletRun.trim()}” must follow a “${BLOCK_MARKERS.bullet.trim()}” bullet`,
+        );
+        continue;
+      }
+      bullets[bullets.length - 1] = withRun(
+        previous,
+        runFromLine(runAfterMarker(raw, BLOCK_MARKERS.bulletRun)),
+      );
+      continue;
+    }
+    if (line.startsWith(BLOCK_MARKERS.bullet)) {
+      const run = runFromLine(runAfterMarker(raw, BLOCK_MARKERS.bullet).replace(/^\s+/, ''));
+      if (run.text === '') errors?.list.push('Article body: a bullet needs text');
+      else bullets.push([run]);
+      continue;
+    }
+    if (line.startsWith(BLOCK_MARKERS.note)) {
+      flush();
+      const text = line.slice(BLOCK_MARKERS.note.length).trim();
+      if (text === '') errors?.list.push('Article body: a note needs text');
+      else blocks.push({ type: 'note', text });
+      continue;
+    }
+    flush();
+    blocks.push({ type: 'paragraph', text: line });
+  }
+  flush();
+
+  if (blocks.length === 0) errors?.list.push('Article body: at least one block is required');
+  return blocks;
+}
+
+/** Renders the block model back into the editor text (round-trips `parseBlocks`). */
+export function blocksToValue(blocks: readonly ArticleBlock[]): string {
+  return blocks
+    .map((block) => {
+      switch (block.type) {
+        case 'paragraph':
+          return block.text;
+        case 'heading':
+          return `${BLOCK_MARKERS.heading}${block.text}`;
+        case 'bullets':
+          // One line per run: concatenating the runs onto one line would make every
+          // ` | ` separator indistinguishable from link syntax.
+          return block.items
+            .map((item) =>
+              item
+                .map(
+                  (segment, index) =>
+                    `${index === 0 ? BLOCK_MARKERS.bullet : BLOCK_MARKERS.bulletRun}${segment.text}${
+                      segment.href === undefined ? '' : ` | ${segment.href}`
+                    }`,
+                )
+                .join('\n'),
+            )
+            .join('\n');
+        case 'note':
+          return block.action === undefined
+            ? `${BLOCK_MARKERS.note}${block.text}`
+            : `${BLOCK_MARKERS.note}${block.text}\n${BLOCK_MARKERS.noteAction}${block.action.label} | ${block.action.href}`;
+      }
+    })
+    .join('\n');
+}
+
 function pairsToLinks(pairs: readonly (readonly [string, string])[]): readonly LinkRef[] {
   return pairs
     .filter(([label, href]) => label !== '' || href !== '')
@@ -552,6 +750,12 @@ export interface DraftRequest {
   readonly id: string;
   readonly order: number;
   readonly now: number;
+  /**
+   * Image references approved for this draft (a chosen file already published and
+   * verified), keyed by the image field name (`cover`, `illustration`,
+   * `heroImage`). Only a verified reference is ever passed in.
+   */
+  readonly media?: Readonly<Record<string, ImageRef>>;
 }
 
 export type DraftAssembly =
@@ -610,7 +814,7 @@ export function assembleDraft(request: DraftRequest): DraftAssembly {
       const payload: StepPayload = {
         description: errors.require(values.description ?? '', 'Description', 400),
         illustration: altEnabledImage(
-          originalPayload?.illustration,
+          request.media?.illustration ?? originalPayload?.illustration,
           {
             source: 'placeholder',
             label: title === '' ? 'New step' : title,
@@ -641,7 +845,7 @@ export function assembleDraft(request: DraftRequest): DraftAssembly {
         links,
         featured: values.featured === 'true',
         cover: altEnabledImage(
-          originalPayload?.cover,
+          request.media?.cover ?? originalPayload?.cover,
           {
             source: 'placeholder',
             label: title === '' ? 'New project' : title,
@@ -668,7 +872,7 @@ export function assembleDraft(request: DraftRequest): DraftAssembly {
         slug: errors.require(values.slug ?? '', 'Route slug', 60),
         summary: errors.require(values.summary ?? '', 'Summary', 400),
         heroImage: altEnabledImage(
-          originalPayload?.heroImage,
+          request.media?.heroImage ?? originalPayload?.heroImage,
           {
             source: 'placeholder',
             label: title === '' ? 'New article' : title,
@@ -676,9 +880,7 @@ export function assembleDraft(request: DraftRequest): DraftAssembly {
           },
           errors.require(values['heroImage.alt'] ?? '', 'Hero alt text', 160),
         ),
-        blocks: originalPayload?.blocks ?? [
-          { type: 'paragraph', text: 'Draft body: content editing arrives in Phase 3.' },
-        ],
+        blocks: parseBlocks(values.blocks ?? '', errors),
         tags: splitLines(values.tags ?? ''),
       };
       candidate = { ...envelope, payload: articlePayload };

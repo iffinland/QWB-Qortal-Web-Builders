@@ -1,18 +1,22 @@
 /**
  * QWB application boot.
  *
- * Phase 1 renders the public site from the typed seed content. Phase 2 adds the
- * owner layer on top of the same render path:
+ * Phase 3 renders the public site from **published QDN entities** (with the
+ * narrow seed fallback documented in `content/qdn-source.ts`) and attaches the
+ * accepted Phase 2 owner layer on top of the same render path:
  *
+ *  - `createQdnSource()` discovers the app's own entities by bounded identifier
+ *    prefix search, filtered on the exact publishing name, and hydrates them
+ *    through the same validators the seed path uses;
  *  - `createOwnerSession()` derives owner mode from the injected `_qdnName` and
  *    the current account's names (fail closed, never persisted);
- *  - `createOwnerShell()` attaches the owner bar and inline affordances after
- *    each render, and attaches nothing at all for a visitor;
- *  - owner mode is re-verified on boot, before every privileged action, on
- *    visibility regain and after a route change while the last check was
- *    inconclusive;
- *  - no QDN read or write exists in this phase: the owner layer only reads the
- *    seed bundle and shows what Phase 3 will publish.
+ *  - `createOwnerShell()` attaches the owner bar and inline affordances after each
+ *    render, and attaches nothing at all for a visitor;
+ *  - writes go through `owner/flows.ts` → `qortal/publish.ts`: publish, then read
+ *    the resource back and verify the served revision before anything is reported
+ *    as published; media is published before the entity that references it;
+ *  - after a verified write the content is re-read from the node and re-rendered,
+ *    so the page always shows served truth rather than an optimistic edit.
  */
 
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -23,7 +27,9 @@ import './styles/components.css';
 import './styles/owner.css';
 
 import type { ContentBundle } from './content/schema';
-import { createSeedSource, findArticleBySlug } from './content/repository';
+import { findArticleBySlug } from './content/repository';
+import { createQdnSource } from './content/qdn-source';
+import { escapeHtml } from './ui/html';
 import { parseRoute, routeKey } from './router';
 import type { Route } from './router';
 import { renderNavbar } from './views/navbar';
@@ -41,6 +47,7 @@ import { createBridge } from './qortal/bridge';
 import { readAppIdentity } from './qortal/context';
 import { createOwnerSession } from './owner/session';
 import { createDraftStore } from './owner/drafts';
+import { createWriteLog } from './owner/writes';
 import { createOwnerFlows } from './owner/flows';
 import { createOwnerShell } from './owner/shell';
 
@@ -85,28 +92,37 @@ async function boot(): Promise<void> {
   const app = document.getElementById('app');
   if (app === null) throw new Error('#app is missing from index.html');
 
-  const source = createSeedSource();
+  const appIdentity = readAppIdentity();
+  const bridge = createBridge();
+  const source = createQdnSource({ app: appIdentity, bridge });
   const result = await source.load();
 
   if (result.status === 'error') {
     app.innerHTML = `<main id="main-content" class="container section-padding">
       <h1>Content could not be loaded</h1>
-      <p>The seed content failed validation (${result.diagnostics.length} problem(s)).</p>
+      <p>The published content could not be read from this node (${result.diagnostics.length} diagnostic(s)). Reload once the node is reachable.</p>
+      <ul>${result.diagnostics.map((diagnostic) => `<li>${escapeHtml(diagnostic)}</li>`).join('')}</ul>
     </main>`;
     return;
   }
 
-  const content = result.bundle;
+  let content = result.bundle;
   let currentRoute = parseRoute(window.location.hash);
   let teardownNavbar: (() => void) | null = null;
 
-  const appIdentity = readAppIdentity();
-  const session = createOwnerSession({ app: appIdentity, bridge: createBridge() });
+  const session = createOwnerSession({ app: appIdentity, bridge });
   const drafts = createDraftStore();
+  const writes = createWriteLog();
   const ownerFlows = createOwnerFlows({
     session,
     drafts,
+    writes,
     getContent: () => content,
+    loadContent: async () => {
+      const reloaded = await source.load();
+      content = reloaded.bundle;
+      return reloaded;
+    },
     requestRerender: () => {
       render(currentRoute);
     },
@@ -114,6 +130,7 @@ async function boot(): Promise<void> {
   const ownerShell = createOwnerShell({
     session,
     drafts,
+    writes,
     flows: ownerFlows,
     view: () => ({ route: currentRoute, content }),
     requestRerender: () => {

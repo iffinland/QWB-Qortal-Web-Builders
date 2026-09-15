@@ -44,7 +44,11 @@ export function sortForDisplay<E extends AnyEntity>(entities: readonly E[]): rea
   });
 }
 
-function prepareBundle(bundle: ContentBundle): ContentBundle {
+/**
+ * Tombstone filter + display ordering for a freshly read bundle. Exported because
+ * every read path (seed source, QDN source) must apply exactly this rule.
+ */
+export function prepareBundle(bundle: ContentBundle): ContentBundle {
   return {
     site: bundle.site,
     highlights: sortForDisplay(activeEntities(bundle.highlights)),

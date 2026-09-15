@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createOwnerSession } from '../src/owner/session';
+import { QDN_WRITE_ENABLED } from '../src/owner/phase';
 import { readAppIdentity } from '../src/qortal/context';
 import type { BridgeOutcome, QortalBridge } from '../src/qortal/bridge';
 import {
@@ -46,7 +47,9 @@ describe('owner session', () => {
 
     expect(session.state.status).toBe('owner');
     expect(session.state.publishingName).toBe(OWNER_NAME);
-    expect(session.state.writeEnabled).toBe(false);
+    // Phase 3 enables QDN writes; the session state mirrors the single gate.
+    expect(session.state.writeEnabled).toBe(QDN_WRITE_ENABLED);
+    expect(QDN_WRITE_ENABLED).toBe(true);
     session.stop();
   });
 

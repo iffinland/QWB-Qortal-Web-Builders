@@ -1,11 +1,18 @@
 /**
  * QWB application boot.
  *
- * Phase 1: load the typed seed content, resolve the hash route, render the
- * shell (navbar + view + footer) and wire the native interactions. There is no
- * bridge call, no owner mode and no QDN write in this phase; Phase 2 adds owner
- * recognition inside the same view `mount()` hooks, and Phase 3 swaps the seed
- * source for a QDN-backed one.
+ * Phase 1 renders the public site from the typed seed content. Phase 2 adds the
+ * owner layer on top of the same render path:
+ *
+ *  - `createOwnerSession()` derives owner mode from the injected `_qdnName` and
+ *    the current account's names (fail closed, never persisted);
+ *  - `createOwnerShell()` attaches the owner bar and inline affordances after
+ *    each render, and attaches nothing at all for a visitor;
+ *  - owner mode is re-verified on boot, before every privileged action, on
+ *    visibility regain and after a route change while the last check was
+ *    inconclusive;
+ *  - no QDN read or write exists in this phase: the owner layer only reads the
+ *    seed bundle and shows what Phase 3 will publish.
  */
 
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -13,6 +20,7 @@ import './styles/fonts.css';
 import './styles/tokens.css';
 import './styles/theme.css';
 import './styles/components.css';
+import './styles/owner.css';
 
 import type { ContentBundle } from './content/schema';
 import { createSeedSource, findArticleBySlug } from './content/repository';
@@ -29,6 +37,14 @@ import type { View } from './views/types';
 import { mountNavbar } from './ui/nav';
 import { mountScrollToTop } from './ui/scroll-to-top';
 import { RESERVED_FOCUS_HASHES, focusMainContent, mountSkipLink } from './ui/skip-link';
+import { createBridge } from './qortal/bridge';
+import { readAppIdentity } from './qortal/context';
+import { createOwnerSession } from './owner/session';
+import { createDraftStore } from './owner/drafts';
+import { createOwnerFlows } from './owner/flows';
+import { createOwnerShell } from './owner/shell';
+
+const SESSION_CHECK_ON_ROUTE_CHANGE = true;
 
 function resolveView(route: Route, content: ContentBundle): View {
   switch (route.kind) {
@@ -84,6 +100,27 @@ async function boot(): Promise<void> {
   let currentRoute = parseRoute(window.location.hash);
   let teardownNavbar: (() => void) | null = null;
 
+  const appIdentity = readAppIdentity();
+  const session = createOwnerSession({ app: appIdentity, bridge: createBridge() });
+  const drafts = createDraftStore();
+  const ownerFlows = createOwnerFlows({
+    session,
+    drafts,
+    getContent: () => content,
+    requestRerender: () => {
+      render(currentRoute);
+    },
+  });
+  const ownerShell = createOwnerShell({
+    session,
+    drafts,
+    flows: ownerFlows,
+    view: () => ({ route: currentRoute, content }),
+    requestRerender: () => {
+      render(currentRoute);
+    },
+  });
+
   const render = (route: Route): void => {
     const view = resolveView(route, content);
     const activeHref =
@@ -100,6 +137,9 @@ ${renderFooter(content.site)}`;
     teardownNavbar = mountNavbar(
       route.kind === 'home' ? { scrollSpySectionIds: HOME_SECTIONS } : {},
     );
+
+    // Owner UI is attached after the public DOM exists, and never before it.
+    ownerShell.attach(app);
 
     if (route.kind === 'home' && route.anchor !== undefined) scrollToAnchor(route.anchor);
   };
@@ -122,11 +162,13 @@ ${renderFooter(content.site)}`;
 
     render(next);
     window.scrollTo({ top: 0, behavior: 'auto' });
+    if (SESSION_CHECK_ON_ROUTE_CHANGE) session.maybeReverify('route-change');
   };
 
   mountSkipLink();
   mountScrollToTop();
   render(currentRoute);
+  session.start();
   window.addEventListener('hashchange', handleHashChange);
 }
 

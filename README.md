@@ -71,16 +71,51 @@ src/content/
   seed.ts             typed Phase-1 seed content
   repository.ts       content-source boundary, tombstone filter, deterministic ordering
   media.ts            image reference → absolute /arbitrary/... URL
+src/qortal/           host boundary: injected globals (context.ts), the single bridge wrapper
+                      (bridge.ts), owner recognition (identity.ts), truthful write
+                      vocabulary + verification gate (write.ts)
+src/owner/            owner layer: session (recognition + re-verification rules), targets
+                      (attachment points), controls (inline affordances), bar, shell,
+                      flows, fields/forms, drafts, phase gate
 src/styles/           tokens.css (verbatim golden-master tokens) · theme.css · components.css
-src/ui/               rendering helpers, images, navbar behaviour, skip link, scroll-to-top
+                      · owner.css (owner-mode-only, scoped to `qwb-` classes)
+src/ui/               rendering helpers, images, navbar behaviour, skip link, scroll-to-top,
+                      owner modal host, owner toasts
 src/views/            one module per section/view: render(data) → HTML, plus a mount() hook
 tests/                vitest + jsdom
 ```
 
-Phase 2 owner controls and inline editing attach inside the existing `mount()`
-hooks on the same containers; Phase 3 swaps `createSeedSource()` for a QDN-backed
-content source. Neither requires a structural rewrite. See
-[`docs/architecture.md`](docs/architecture.md).
+The owner layer attaches _after_ each render and only finds its own attachment
+points in the finished DOM, so no view knows owner mode exists and no public
+markup changed for it. Phase 3 swaps `createSeedSource()` for a QDN-backed content
+source and plugs persistence into `src/owner/flows.ts`; neither requires a
+structural rewrite. See [`docs/architecture.md`](docs/architecture.md).
+
+## Owner mode (Phase 2)
+
+Owner mode is derived automatically and never persisted:
+
+```text
+_qdnName (Core-injected publishing name)
+  + GET_USER_ACCOUNT (host permission dialog)
+  + GET_ACCOUNT_NAMES
+  → case-folded membership test   →  owner | visitor | unavailable | inconclusive
+```
+
+- no hardcoded owner name or address, no `names[0]`, fail closed, no `owner=true`
+  in any storage;
+- re-verified before every privileged action and when the document becomes visible
+  again;
+- the owner sees the same public site plus a compact owner bar and inline
+  `✎ / 🗑 / ↑ / ↓ / + Add …` affordances (expanded ≥768 px, badge + sheet on a
+  phone); a visitor's DOM is byte-identical to the Phase 1 baseline.
+
+**Phase 2 ships no QDN write.** Every mutation affordance is DOM-only and says so;
+the form's primary action is rendered disabled with the reason, and the enabled
+`Validate draft` action runs the real validator and reports that nothing was saved
+or published. Owner mode is structurally impossible in the developer-mode proxy
+(no injected `_qdnName`) and in gateway/domain-map serving; those contexts report
+`unavailable` with the reason instead of guessing.
 
 ## Status
 
@@ -88,14 +123,15 @@ content source. Neither requires a structural rewrite. See
 | ----- | ----------------------------------------------------------------- | ----------- |
 | 0     | repository, tooling, structure, reference pins, asset attribution | done        |
 | 1     | public visual baseline from typed seed content                    | done        |
-| 2     | owner recognition + owner UI shell                                | not started |
+| 2     | owner recognition + owner UI shell (no QDN writes)                | done        |
 | 3     | QDN-backed CRUD, media, truthful outcomes                         | not started |
 | 4     | owner-runtime validation, visual regression, documentation        | not started |
 
-Explicitly **not** in this repository yet: owner recognition, owner controls,
-add/edit/delete flows, QDN reads or writes, any migration/import tooling, and
-deployment or publication. No QDN write is authorized by the existence of this
-code.
+Explicitly **not** in this repository yet: QDN reads or writes, media publishing,
+any Add/Edit/Delete persistence, a derived index, migration/import tooling, and
+deployment or publication. Owner-mode acceptance still requires an owner run in a
+real Qortal host (see the Phase 2 implementation report); no QDN write is
+authorized by the existence of this code.
 
 ## Documentation
 

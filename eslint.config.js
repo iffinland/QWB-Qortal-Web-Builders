@@ -25,6 +25,12 @@ export default tseslint.config(
   {
     files: ['tests/**/*.ts', '**/*.test.ts'],
     languageOptions: { globals: { ...globals.node } },
+    rules: {
+      // The Qortal host rejects bridge calls with a plain `{error}` object or a
+      // string (Core `q-apps.js`), not an Error. Reproducing the real rejection
+      // shape in tests therefore requires a non-Error rejection reason.
+      '@typescript-eslint/prefer-promise-reject-errors': 'off',
+    },
   },
   {
     files: ['*.config.ts', '*.config.js', 'eslint.config.js'],

@@ -1,0 +1,507 @@
+/*----------------------------------------------------------------------------------
+  QWB owner layer.
+
+  Every rule here is scoped to owner-only classes, so nothing in this file can
+  reach the public site: a visitor's DOM contains none of these selectors. The
+  layer uses the site's own tokens rather than a second palette, and it never
+  overrides a public component's geometry.
+----------------------------------------------------------------------------------*/
+
+:root {
+  --qwb-owner-surface: #0f3f5c;
+  --qwb-owner-surface-raised: #13547a;
+  --qwb-owner-accent: #80d0c7;
+  --qwb-owner-danger: #b3261e;
+  --qwb-owner-warning-bg: #fff3d6;
+  --qwb-owner-warning-text: #6b4a00;
+}
+
+/* ---------------------------------------------------------------- owner bar */
+
+.qwb-owner-bar {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(560px, calc(100vw - 36px));
+  padding: 10px 12px;
+  border-radius: var(--border-radius-small);
+  background-color: var(--qwb-owner-surface);
+  color: var(--white-color);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  font-family: var(--body-font-family);
+  font-size: 14px;
+}
+
+.qwb-owner-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.qwb-owner-badge {
+  padding: 3px 10px;
+  border-radius: var(--border-radius-large);
+  background-color: var(--qwb-owner-accent);
+  color: var(--qwb-owner-surface);
+  font-weight: var(--font-weight-bold);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.qwb-owner-name {
+  font-weight: var(--font-weight-semibold);
+}
+
+.qwb-owner-meta,
+.qwb-owner-status {
+  opacity: 0.85;
+  font-size: 12px;
+}
+
+.qwb-owner-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qwb-owner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qwb-owner-dirty-active {
+  color: var(--qwb-owner-warning-bg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.qwb-bar-btn,
+.qwb-bar-toggle,
+.qwb-ctl,
+.qwb-btn {
+  min-height: 40px;
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--border-radius-small);
+  font-family: var(--body-font-family);
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.qwb-bar-btn {
+  background-color: rgba(255, 255, 255, 0.14);
+  color: var(--white-color);
+}
+
+.qwb-bar-btn:hover,
+.qwb-bar-btn:focus {
+  background-color: rgba(255, 255, 255, 0.26);
+}
+
+.qwb-bar-btn-primary {
+  background-color: var(--qwb-owner-accent);
+  color: var(--qwb-owner-surface);
+}
+
+.qwb-bar-toggle {
+  margin-left: auto;
+  background-color: transparent;
+  color: var(--white-color);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+/* ------------------------------------------------------------ inline controls */
+
+.qwb-owner-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+article.custom-block > .qwb-owner-controls,
+article.pricing-box > .qwb-owner-controls,
+#panel-3 li > .qwb-owner-controls {
+  padding-top: 8px;
+  border-top: 1px dashed rgba(19, 84, 122, 0.35);
+}
+
+.qwb-ctl {
+  min-width: 40px;
+  padding: 6px 10px;
+  background-color: #eef6f5;
+  color: var(--qwb-owner-surface);
+  border-color: rgba(19, 84, 122, 0.25);
+  line-height: 1;
+}
+
+.qwb-ctl:hover,
+.qwb-ctl:focus {
+  background-color: var(--qwb-owner-surface);
+  color: var(--white-color);
+}
+
+.qwb-ctl-delete:hover,
+.qwb-ctl-delete:focus {
+  background-color: var(--qwb-owner-danger);
+}
+
+.qwb-ctl-add {
+  background-color: var(--qwb-owner-surface);
+  color: var(--white-color);
+  min-height: 44px;
+}
+
+/* The add row is appended to containers the public page already lays out as a
+   wrapping flex/grid row (`.row`, `.pricing-container`). `flex-basis: 100%` gives
+   it its own line and `align-self: flex-start` stops it stretching to the height
+   of the tallest sibling — without either, the pricing row stretched the button
+   to the full column height. */
+.qwb-owner-add-row {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
+  flex-basis: 100%;
+  align-self: flex-start;
+}
+
+/* ------------------------------------------------------------------- modals */
+
+/* Scroll lock: `modal.ts` adds `.qwb-modal-open` to <html> while a dialog is
+   open. The class only ever exists in owner mode. */
+html.qwb-modal-open,
+html.qwb-modal-open body {
+  overflow: hidden;
+}
+
+.qwb-modal-host {
+  position: relative;
+  z-index: 1100;
+}
+
+.qwb-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background-color: rgba(6, 30, 44, 0.55);
+  overflow-y: auto;
+}
+
+.qwb-modal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 22px;
+  border-radius: var(--border-radius-medium);
+  background-color: var(--white-color);
+  color: var(--dark-color);
+  box-shadow: var(--card-shadow);
+  font-family: var(--body-font-family);
+}
+
+.qwb-modal-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.qwb-modal-title {
+  margin: 0;
+  font-family: var(--title-font-family);
+  font-size: var(--h5-font-size);
+}
+
+.qwb-modal-subtitle {
+  margin: 4px 0 0;
+  color: var(--p-color);
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.qwb-modal-close {
+  margin-left: auto;
+  min-width: 40px;
+  min-height: 40px;
+  border: none;
+  border-radius: var(--border-radius-small);
+  background-color: transparent;
+  color: var(--qwb-owner-surface);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.qwb-modal-close:hover,
+.qwb-modal-close:focus {
+  background-color: #eef6f5;
+}
+
+.qwb-modal-guard {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: var(--border-radius-small);
+  background-color: var(--qwb-owner-warning-bg);
+  color: var(--qwb-owner-warning-text);
+}
+
+.qwb-modal-guard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* -------------------------------------------------------------------- forms */
+
+.qwb-form-heading {
+  margin-bottom: 12px;
+}
+
+.qwb-form-title {
+  margin: 0;
+  font-family: var(--title-font-family);
+  font-size: var(--h6-font-size);
+}
+
+.qwb-form-subtitle {
+  margin: 2px 0 0;
+  color: var(--p-color);
+  font-size: 14px;
+}
+
+.qwb-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.qwb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.qwb-field-full {
+  grid-column: 1 / -1;
+}
+
+.qwb-field-label {
+  font-weight: var(--font-weight-semibold);
+  font-size: 14px;
+}
+
+.qwb-field-help {
+  margin: 0;
+  color: var(--p-color);
+  font-size: 12px;
+}
+
+.qwb-field-static {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--border-radius-small);
+  background-color: #f4f6f7;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.qwb-input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5d8;
+  border-radius: var(--border-radius-small);
+  font-family: var(--body-font-family);
+  font-size: 15px;
+}
+
+.qwb-input:focus-visible,
+.qwb-btn:focus-visible,
+.qwb-ctl:focus-visible,
+.qwb-bar-btn:focus-visible,
+.qwb-modal-close:focus-visible {
+  outline: 3px solid var(--qwb-owner-surface);
+  outline-offset: 2px;
+}
+
+.qwb-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.qwb-btn-primary {
+  background-color: var(--qwb-owner-surface);
+  color: var(--white-color);
+}
+
+.qwb-btn-primary:disabled {
+  background-color: #cbd5d8;
+  color: #6b7376;
+  cursor: not-allowed;
+}
+
+.qwb-btn-secondary {
+  background-color: var(--qwb-owner-accent);
+  color: var(--qwb-owner-surface);
+}
+
+.qwb-btn-quiet {
+  background-color: transparent;
+  color: var(--qwb-owner-surface);
+  border-color: #cbd5d8;
+}
+
+.qwb-btn-danger {
+  background-color: var(--qwb-owner-danger);
+  color: var(--white-color);
+}
+
+.qwb-btn-danger:disabled {
+  background-color: #cbd5d8;
+  color: #6b7376;
+  cursor: not-allowed;
+}
+
+.qwb-form-result {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--border-radius-small);
+  font-size: 14px;
+}
+
+.qwb-form-result-ok {
+  background-color: #e7f6ec;
+  color: #14532d;
+}
+
+.qwb-form-result-error {
+  background-color: var(--qwb-owner-warning-bg);
+  color: var(--qwb-owner-warning-text);
+}
+
+.qwb-notice {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: var(--border-radius-small);
+  font-size: 14px;
+}
+
+.qwb-notice-warning {
+  background-color: var(--qwb-owner-warning-bg);
+  color: var(--qwb-owner-warning-text);
+}
+
+.qwb-status-list {
+  margin: 12px 0;
+  padding-left: 20px;
+}
+
+/* -------------------------------------------------------------------- toasts */
+
+.qwb-toast-host {
+  position: fixed;
+  left: 18px;
+  /* Stacked above the owner bar: the bar publishes its own height (bar.ts), so a
+     toast never covers the bar it was raised from. */
+  bottom: calc(18px + var(--qwb-owner-bar-height, 56px) + 12px);
+  z-index: 1050;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(420px, calc(100vw - 36px));
+}
+
+.qwb-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--border-radius-small);
+  background-color: var(--qwb-owner-surface);
+  color: var(--white-color);
+  font-family: var(--body-font-family);
+  font-size: 14px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
+}
+
+.qwb-toast-warning {
+  background-color: var(--qwb-owner-warning-bg);
+  color: var(--qwb-owner-warning-text);
+}
+
+.qwb-toast-dismiss {
+  margin-left: auto;
+  min-width: 28px;
+  min-height: 28px;
+  border: none;
+  border-radius: var(--border-radius-small);
+  background-color: transparent;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------- small screens */
+
+@media (max-width: 767.98px) {
+  .qwb-owner-bar {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    max-width: none;
+  }
+
+  /* The bar collapses to its badge row; the toggle opens the actions sheet. */
+  .qwb-owner-meta {
+    display: none;
+  }
+
+  .qwb-owner-body[hidden] {
+    display: none;
+  }
+
+  .qwb-bar-btn,
+  .qwb-bar-toggle,
+  .qwb-ctl,
+  .qwb-btn,
+  .qwb-owner-add-row .qwb-ctl-add {
+    min-height: 44px;
+  }
+
+  .qwb-modal-backdrop {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .qwb-modal {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: var(--border-radius-medium) var(--border-radius-medium) 0 0;
+  }
+
+  .qwb-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .qwb-toast-host {
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + var(--qwb-owner-bar-height, 56px) + 12px);
+    max-width: none;
+  }
+}

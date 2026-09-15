@@ -17,10 +17,13 @@
   --custom-btn-bg-hover-color: #13547a;
   --dark-color: #000000;
   --p-color: #717275;
-  /* Legible aquamarine for *text* (links, credit row). The published site used
-     the raw fill colour #80d0c7 as a text colour, which measures 1.78:1 on
-     white / #f0f8ff; this shade measures 4.75:1 / 4.55:1 while keeping the hue. */
-  --secondary-text-color: #2f7f76;
+  /* Legible aquamarine for *text* (contact values, credit row). The published
+     site used the raw fill colour #80d0c7 as a text colour, which measures
+     1.78:1 on white and 1.66:1 on the alice-blue band, and the raw #71D8CE of
+     the credit line measures 1.69:1. This shade clears the 4.5:1 normal-text
+     threshold on both grounds - 5.01:1 on white, 4.67:1 on #f0f8ff - while
+     keeping the hue. */
+  --secondary-text-color: #2d7b72;
   --border-color: #7fffd4;
   --link-hover-color: #13547a;
 

@@ -1,0 +1,70 @@
+/*----------------------------------------------------------------------------------
+  QWB design tokens
+  Derived verbatim from the audited golden master theme layer
+  (`-PUBLISHED-versioon/css/templatemo-topic-listing.css`, `:root`), so that
+  "did the design survive?" is verifiable against the published site.
+  The corrupted SCSS tail (external Google Fonts @import, `$variables`, nested
+  rules, a global `p{}` leak and an absolutely-positioned `h4{}` leak) is not
+  carried forward - see docs/architecture.md.
+----------------------------------------------------------------------------------*/
+:root {
+  /* Identity colours - unchanged from the published site */
+  --white-color: #ffffff;
+  --primary-color: #13547a;
+  --secondary-color: #80d0c7;
+  --section-bg-color: #f0f8ff;
+  --custom-btn-bg-color: #80d0c7;
+  --custom-btn-bg-hover-color: #13547a;
+  --dark-color: #000000;
+  --p-color: #717275;
+  /* Legible aquamarine for *text* (links, credit row). The published site used
+     the raw fill colour #80d0c7 as a text colour, which measures 1.78:1 on
+     white / #f0f8ff; this shade measures 4.75:1 / 4.55:1 while keeping the hue. */
+  --secondary-text-color: #2f7f76;
+  --border-color: #7fffd4;
+  --link-hover-color: #13547a;
+
+  /* Badge / accent palette of the published theme (used by the numbered step pills) */
+  --accent-design: #00b0ff;
+  --accent-graphic: #00bfa6;
+  --accent-advertising: #f50057;
+  --accent-finance: #536dfe;
+  --accent-music: #f9a826;
+  --accent-education: #00bfa6;
+  --accent-completed: #54ca8b;
+  --accent-progress: #fac20a;
+  --accent-order: #28a745;
+  --accent-order-hover: #218838;
+  --accent-note: #d18f00;
+  --accent-note-bg: #fff3d6;
+
+  /* Typography */
+  --body-font-family: 'Open Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --title-font-family: 'Montserrat', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --h1-font-size: 58px;
+  --h2-font-size: 46px;
+  --h3-font-size: 32px;
+  --h4-font-size: 28px;
+  --h5-font-size: 24px;
+  --h6-font-size: 22px;
+  --p-font-size: 20px;
+  --menu-font-size: 14px;
+  --btn-font-size: 18px;
+  --copyright-font-size: 16px;
+
+  --border-radius-large: 100px;
+  --border-radius-medium: 20px;
+  --border-radius-small: 10px;
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Composition */
+  --signature-gradient: linear-gradient(15deg, #13547a 0%, #80d0c7 100%);
+  --section-padding-y: 100px;
+  --card-shadow: 0 16px 48px rgba(0, 0, 0, 0.176);
+  --navbar-height: 96px;
+}

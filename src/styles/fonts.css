@@ -1,0 +1,50 @@
+/*----------------------------------------------------------------------------------
+  Self-hosted typography.
+
+  The published site declared `'Montserrat'` and `'Open Sans'` as its title/body
+  fonts but loaded neither (it also carried a Google Fonts `@import` that the
+  production render CSP - `font-src 'self' data:` - blocks). The intended
+  families are restored here, self-hosted from the pinned `@fontsource` packages
+  so the published archive stays CSP-safe and offline-complete.
+
+  Only the `latin` subset, woff2 only: the seed content is English.
+----------------------------------------------------------------------------------*/
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('@fontsource/montserrat/files/montserrat-latin-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('@fontsource/montserrat/files/montserrat-latin-600-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('@fontsource/montserrat/files/montserrat-latin-700-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Open Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('@fontsource/open-sans/files/open-sans-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Open Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('@fontsource/open-sans/files/open-sans-latin-600-normal.woff2') format('woff2');
+}

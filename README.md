@@ -136,9 +136,18 @@ and `article` (`qwb_post_`, service `DOCUMENT`; every other kind is `JSON`).
 
 The seed renders only when the app cannot address QDN at all (no `_qdnName`/no
 bridge), when nothing is published under the name at all, or when the site
-singleton alone is unreadable. It is never substituted for entities that exist but
-failed to load — that is reported as `partial` with diagnostics, and a total read
-failure shows the content-error state.
+singleton alone is unreadable. It is never substituted for an entity that exists
+but failed to load — that is reported as `partial` with diagnostics, and a total
+read failure shows the content-error state.
+
+It is also the **pre-publication bootstrap baseline**, and that rule is per
+entity, not per kind: once the owner has published something, each kind still
+renders the shipped items that discovery did not report at all, so replacing the
+shipped site one entity at a time never hides the untouched items — or their edit
+controls. A reported identifier (active, tombstoned, invalid or unreadable) never
+falls back to its shipped default, and a discovery that failed or hit the page
+budget contributes no default. The baseline ends on its own once every shipped
+identifier has been published or tombstoned.
 
 ### Write contract (Phase 3)
 
@@ -158,24 +167,30 @@ Verify          re-read the resource and compare the served rev (4 attempts × 5
   submission is never presented as a result, and a failed or ambiguous write keeps
   the draft in the open form.
 
-Owner-mode acceptance still requires an owner run in a real Qortal host: no write
-has been exercised against a live node from this repository.
+Phase 4 owner-runtime validation (2026-09-16) exercised the real write path in
+Qortal Hub 3.0.3 against the owner-approved staging resource
+`WEBSITE / Q-Website / default`: create, edit, reorder, delete (tombstone) and
+media replacement all returned node read-back and survived hard reloads, with the
+owner signing every write. Any future write or owner-mode claim still needs a
+fresh real-host run.
 
 ## Status
 
-| Phase | Scope                                                             | State                                                 |
-| ----- | ----------------------------------------------------------------- | ----------------------------------------------------- |
-| 0     | repository, tooling, structure, reference pins, asset attribution | done                                                  |
-| 1     | public visual baseline from typed seed content                    | done                                                  |
-| 2     | owner recognition + owner UI shell (no QDN writes)                | done                                                  |
-| 3     | QDN-backed CRUD, media, truthful outcomes                         | done (code); staging owner-runtime validation pending |
-| 4     | owner-runtime validation, visual regression, documentation        | not started                                           |
+| Phase | Scope                                                             | State                                                       |
+| ----- | ----------------------------------------------------------------- | ----------------------------------------------------------- |
+| 0     | repository, tooling, structure, reference pins, asset attribution | done                                                        |
+| 1     | public visual baseline from typed seed content                    | done                                                        |
+| 2     | owner recognition + owner UI shell (no QDN writes)                | done                                                        |
+| 3     | QDN-backed CRUD, media, truthful outcomes                         | done; owner-runtime validated (staging)                     |
+| 4     | owner-runtime validation, visual regression, documentation        | owner-runtime validation PASS 2026-09-16; checkpoint closed |
 
 Explicitly **not** in this repository: a derived index, migration/import tooling,
 deployment or publication, and any physical QDN delete (Qortal has no
-app-accessible one, so a delete is a tombstone). No QDN write has been exercised
-against a live node from this repository, and the `WEBSITE` resource itself is
-never republished by the app.
+app-accessible one, so a delete is a tombstone). The app never republishes the
+`WEBSITE` bundle itself — publishing the build is a separate, explicitly
+authorized release step. The production resource
+`WEBSITE / Qortal Web Builders / default` has never been written by this project;
+the Phase 4 writes were synthetic staging content under `WEBSITE / Q-Website / default`.
 
 ## Documentation
 

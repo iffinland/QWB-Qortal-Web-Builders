@@ -155,7 +155,15 @@ validator the seed path uses.
 `status: 'ready' | 'partial' | 'error'` is the read result; diagnostics name every
 item that was found but could not be used. Seed fallback is narrow by design: (1)
 no publishing identity or no bridge, (2) nothing published under the name at all,
-(3) the site singleton alone unreadable (seed shell + diagnostic). The seed is
+(3) the site singleton alone unreadable (seed shell + diagnostic), and (4) the
+**pre-publication bootstrap baseline** — per entity, and only for a kind whose
+discovery answered without hitting the page budget, a kind keeps the shipped items
+that discovery did not report at all. That is what makes the approved "replace the
+shipped site one entity at a time" flow safe: an untouched shipped item — and with
+it the only control that could ever publish it — never disappears because of
+someone else's first write. A reported identifier (active, tombstoned, invalid or
+unreadable) is never replaced by its shipped default, and the baseline ends by
+itself once every shipped identifier has been published or tombstoned. The seed is
 never substituted for entities that exist and failed to load.
 
 **Write.** Publishing identity is the injected `_qdnName`; the coordinate is
@@ -269,8 +277,12 @@ image. Publishing order is always media → entity.
 **Seed content** (`src/content/seed.ts`) is typed content: the published structure
 with the repositioned message, the owner's real published portfolio list and price
 points, and `placeholder` covers. From Phase 3 it is the read fallback (see §3.4)
-and the design reference the QDN read path is compared against. There is no import
-or migration of the old markup, and no migration script exists by design.
+and the design reference the QDN read path is compared against. From the Phase 4
+checkpoint it is also the per-entity bootstrap baseline (§3.4), because the
+approved flow is that the owner replaces the shipped content _one entity at a
+time_: an item discovery did not report keeps rendering from the seed until the
+owner publishes or deletes it. There is no import of the old markup, and no
+migration script exists by design.
 
 **Article bodies are structured blocks**, not HTML: headings, paragraphs, lists,
 quotes, images and links are modelled as data and rendered through the same

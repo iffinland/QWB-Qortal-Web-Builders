@@ -26,7 +26,14 @@
  *     all, so the seed content is the site's designed pre-publication state;
  *  3. **the site singleton alone is unreadable** — the shell (brand, nav, hero,
  *     contact, footer copy) has to come from somewhere to render at all, so the
- *     seed shell is used with a diagnostic.
+ *     seed shell is used with a diagnostic;
+ *  4. **the pre-publication bootstrap baseline** (per entity, self-terminating) —
+ *     once the owner has published *something*, the approved flow (§6.4) is still
+ *     to replace the shipped seed one entity at a time, so each kind keeps the
+ *     shipped items that discovery did not report at all. A reported identifier
+ *     (active, tombstoned, invalid or unreadable) is never replaced by its shipped
+ *     default, and a kind whose discovery failed or hit the page budget
+ *     contributes no default because it proves nothing about what exists.
  *
  * It never substitutes seed entities for entities that exist but failed to load:
  * that would be a silent lie about published content. A total read failure is
@@ -87,6 +94,11 @@ export interface QdnSourceOptions {
 interface KindRead {
   readonly kind: DiscoveredKind;
   readonly entities: readonly AnyEntity[];
+  /**
+   * Every identifier discovery returned for this kind (after the exact
+   * name/service/prefix re-filter), whatever the payload read then did with it.
+   */
+  readonly identifiers: ReadonlySet<string>;
   readonly tombstones: number;
   readonly invalid: number;
   readonly unavailable: number;
@@ -99,21 +111,62 @@ function emptyBundle(site: SiteEntity): ContentBundle {
   return { site, highlights: [], services: [], steps: [], works: [], prices: [], articles: [] };
 }
 
-function withKind(bundle: ContentBundle, read: KindRead): ContentBundle {
-  switch (read.kind) {
+function entitiesForKind(bundle: ContentBundle, kind: DiscoveredKind): readonly AnyEntity[] {
+  switch (kind) {
     case 'highlight':
-      return { ...bundle, highlights: read.entities as ContentBundle['highlights'] };
+      return bundle.highlights;
     case 'service':
-      return { ...bundle, services: read.entities as ContentBundle['services'] };
+      return bundle.services;
     case 'step':
-      return { ...bundle, steps: read.entities as ContentBundle['steps'] };
+      return bundle.steps;
     case 'work':
-      return { ...bundle, works: read.entities as ContentBundle['works'] };
+      return bundle.works;
     case 'price':
-      return { ...bundle, prices: read.entities as ContentBundle['prices'] };
+      return bundle.prices;
     case 'article':
-      return { ...bundle, articles: read.entities as ContentBundle['articles'] };
+      return bundle.articles;
   }
+}
+
+function withKind(
+  bundle: ContentBundle,
+  kind: DiscoveredKind,
+  entities: readonly AnyEntity[],
+): ContentBundle {
+  switch (kind) {
+    case 'highlight':
+      return { ...bundle, highlights: entities as ContentBundle['highlights'] };
+    case 'service':
+      return { ...bundle, services: entities as ContentBundle['services'] };
+    case 'step':
+      return { ...bundle, steps: entities as ContentBundle['steps'] };
+    case 'work':
+      return { ...bundle, works: entities as ContentBundle['works'] };
+    case 'price':
+      return { ...bundle, prices: entities as ContentBundle['prices'] };
+    case 'article':
+      return { ...bundle, articles: entities as ContentBundle['articles'] };
+  }
+}
+
+/**
+ * Merges the shipped seed baseline into one kind's discovered entities.
+ *
+ * The shipped default is added only for a shipped identifier that discovery did
+ * not see at all, and only when discovery actually answered without hitting the
+ * page budget — a failed or truncated search proves nothing, so it must not
+ * resurrect a shipped item over a tombstone it could not read. Because every
+ * shipped identifier is either published or tombstoned before the owner is done,
+ * the baseline stops contributing on its own; it is not a mode or a flag.
+ */
+function applySeedBaseline(
+  read: KindRead,
+  shipped: readonly AnyEntity[],
+): { readonly entities: readonly AnyEntity[]; readonly added: number } {
+  if (!read.answered || read.truncated) return { entities: read.entities, added: 0 };
+  const defaults = shipped.filter((entity) => !read.identifiers.has(entity.id));
+  if (defaults.length === 0) return { entities: read.entities, added: 0 };
+  return { entities: [...read.entities, ...defaults], added: defaults.length };
 }
 
 export function createQdnSource(options: QdnSourceOptions): ContentSource {
@@ -160,6 +213,7 @@ export function createQdnSource(options: QdnSourceOptions): ContentSource {
     return {
       kind,
       entities: loaded.flatMap((entry) => (entry.status === 'active' ? [entry.entity] : [])),
+      identifiers: new Set(discovery.summaries.map((summary) => summary.identifier)),
       tombstones: loaded.filter((entry) => entry.status === 'deleted').length,
       invalid: loaded.filter((entry) => entry.status === 'invalid').length,
       unavailable: loaded.filter((entry) => entry.status === 'unavailable').length,
@@ -241,9 +295,12 @@ export function createQdnSource(options: QdnSourceOptions): ContentSource {
     let tombstones = 0;
     let damaged = 0;
     let searchErrors = 0;
+    let bootstrapDefaults = 0;
 
     for (const read of kinds) {
-      bundle = withKind(bundle, read);
+      const merged = applySeedBaseline(read, entitiesForKind(seed, read.kind));
+      bootstrapDefaults += merged.added;
+      bundle = withKind(bundle, read.kind, merged.entities);
       entityCount += read.entities.length;
       tombstones += read.tombstones;
       damaged += read.invalid + read.unavailable;
@@ -277,6 +334,12 @@ export function createQdnSource(options: QdnSourceOptions): ContentSource {
           `nothing-published: no QWB resource is published under "${name}" yet; rendering the shipped seed content`,
         ],
       };
+    }
+
+    if (bootstrapDefaults > 0) {
+      diagnostics.push(
+        `bootstrap-defaults: ${String(bootstrapDefaults)} shipped item(s) render from the seed because their identifier is not published yet; editing or deleting one in place publishes its own record`,
+      );
     }
 
     if (tombstones > 0) {

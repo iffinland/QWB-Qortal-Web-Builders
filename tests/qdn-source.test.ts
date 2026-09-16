@@ -349,3 +349,94 @@ describe('QDN content source', () => {
     expect(result.bundle.site.id).toBe(seed.site.id);
   });
 });
+
+/**
+ * Pre-publication bootstrap: the owner replaces the shipped seed **one entity at
+ * a time** through the inline editor (§6.4 of the approved architecture), so the
+ * first published write must not hide every shipped item the owner has not
+ * touched yet — those items carry the only controls that could ever publish them.
+ */
+describe('QDN content source — pre-publication bootstrap baseline', () => {
+  const publishContext = (node: ReturnType<typeof createFakeNode>) => ({
+    bridge: node.bridge,
+    name: OWNER_NAME,
+    sleep: () => Promise.resolve(),
+  });
+
+  it('keeps untouched shipped items rendered across the zero → first write → reload → second write transition', async () => {
+    const seed = await seedBundle();
+    const node = createFakeNode({ name: OWNER_NAME });
+    const source = createQdnSource({ app: APP, bridge: node.bridge });
+
+    // Zero content: the designed pre-publication state.
+    const zero = await source.load();
+    expect(zero.diagnostics.join(' ')).toContain('nothing-published');
+    expect(zero.bundle.highlights).toHaveLength(seed.highlights.length);
+
+    // First write: one shipped highlight is edited and published.
+    const first = seed.highlights[0];
+    const second = seed.highlights[1];
+    if (first === undefined || second === undefined) throw new Error('need two seed highlights');
+    const firstEdit: AnyEntity = { ...first, title: 'First bootstrap edit', rev: first.rev + 1 };
+    expect((await publishEntity(publishContext(node), firstEdit)).verified).toBe(true);
+
+    // Reload: the edit is served, and every untouched shipped item still renders.
+    const afterFirst = await source.load();
+    expect(afterFirst.status).toBe('ready');
+    expect(afterFirst.bundle.highlights).toHaveLength(seed.highlights.length);
+    expect(afterFirst.bundle.highlights.find((item) => item.id === first.id)?.title).toBe(
+      'First bootstrap edit',
+    );
+    expect(afterFirst.bundle.highlights.find((item) => item.id === second.id)?.title).toBe(
+      second.title,
+    );
+    for (const kind of DISCOVERED_KINDS) {
+      if (kind === 'highlight') continue;
+      expect(entitiesOf(afterFirst.bundle, kind)).toHaveLength(entitiesOf(seed, kind).length);
+    }
+    expect(afterFirst.diagnostics.join(' ')).toContain('bootstrap-defaults');
+
+    // Second write: a different untouched shipped item is edited and published.
+    const secondEdit: AnyEntity = {
+      ...second,
+      title: 'Second bootstrap edit',
+      rev: second.rev + 1,
+    };
+    expect((await publishEntity(publishContext(node), secondEdit)).verified).toBe(true);
+
+    const afterSecond = await source.load();
+    expect(afterSecond.bundle.highlights).toHaveLength(seed.highlights.length);
+    expect(afterSecond.bundle.highlights.find((item) => item.id === first.id)?.title).toBe(
+      'First bootstrap edit',
+    );
+    expect(afterSecond.bundle.highlights.find((item) => item.id === second.id)?.title).toBe(
+      'Second bootstrap edit',
+    );
+  });
+
+  it('never resurrects a shipped item the owner tombstoned', async () => {
+    const seed = await seedBundle();
+    const deleted = seed.highlights[0];
+    if (deleted === undefined) throw new Error('no seed highlight');
+
+    const node = createFakeNode({ name: OWNER_NAME });
+    const source = createQdnSource({ app: APP, bridge: node.bridge });
+    const deletedEntity = buildTombstone(deleted, 1_700_001_000_000);
+    expect((await publishEntity(publishContext(node), deletedEntity)).verified).toBe(true);
+
+    const result = await source.load();
+    expect(result.bundle.highlights.map((item) => item.id)).not.toContain(deleted.id);
+    expect(result.bundle.highlights).toHaveLength(seed.highlights.length - 1);
+    expect(result.diagnostics.join(' ')).toContain('tombstones: 1');
+  });
+
+  it('stops contributing shipped defaults once discovery sees every identifier', async () => {
+    const seed = await seedBundle();
+    const node = createFakeNode({ name: OWNER_NAME, entities: await seedStoredEntities() });
+    const source = createQdnSource({ app: APP, bridge: node.bridge });
+    const result = await source.load();
+
+    expect(result.bundle.highlights).toHaveLength(seed.highlights.length);
+    expect(result.diagnostics.join(' ')).not.toContain('bootstrap-defaults');
+  });
+});

@@ -1,3 +1,5 @@
+import { detectQortalRequest } from './bridge';
+
 /**
  * Qortal host context.
  *
@@ -8,11 +10,14 @@
  *
  * `_qdnName` is the registered name that published the rendered resource: it is
  * the app's own publishing identity and therefore the only correct basis for
- * "who owns this app". It is never hardcoded.
+ * "who owns this app". It is never hardcoded. Core injects it percent-encoded,
+ * so it is decoded before use (`decodeInjectedName`).
  *
- * Bridge presence is probed on the app's **own** window only. The legacy
+ * Bridge presence is probed in the app's **own** document only. The legacy
  * reference app walked `window.parent`/`window.top`; current Core injects
  * `/apps/q-apps.js` into the app document itself, so that probing is obsolete.
+ * The injected bridge is a *lexical* global binding rather than a `globalThis`
+ * property, so it is resolved through `detectQortalRequest()`.
  *
  * Context kinds that can carry host-mediated calls (`render`) are separated
  * from read-only ones:
@@ -95,8 +100,42 @@ function readString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+/**
+ * The injected publishing name, decoded.
+ *
+ * Core builds `HTMLParser` from `encodedResourceId` (`ArbitraryDataRenderer`,
+ * Core `108bf191`), so `_qdnName` arrives **percent-encoded**: the live
+ * `Qortal Web Builders` WEBSITE resource injects `Qortal%20Web%20Builders`
+ * (verified in a real render context on 2026-09-16, `qortal-6.1.9-108bf19`).
+ * The raw registered name is what `GET_ACCOUNT_NAMES` returns, what QDN reads
+ * match on and what a publish must send, so it is decoded once here. A value
+ * that is not valid percent-encoding is kept verbatim rather than dropped.
+ */
+function decodeInjectedName(value: string): string {
+  if (!value.includes('%')) return value;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * The default scope: the nine injected globals plus the host bridge, which is
+ * resolved through `detectQortalRequest()` rather than read as a property.
+ *
+ * Core injects `/apps/q-apps.js` as a classic script, so `qortalRequest` is a
+ * *lexical* global binding and **not** a `globalThis` property (verified live in
+ * a render context on 2026-09-16). Reading only the property made every real host
+ * look like "no bridge", which silently disabled owner mode there.
+ */
 export function defaultGlobalScope(): QdnGlobalScope {
-  return globalThis as unknown as QdnGlobalScope;
+  const globals = globalThis as unknown as Record<string, unknown>;
+  const scope: Record<string, unknown> = {};
+  for (const globalName of QDN_CONTEXT_GLOBAL_NAMES) scope[globalName] = globals[globalName];
+  const bridge = detectQortalRequest();
+  if (bridge !== undefined) scope.qortalRequest = bridge;
+  return scope;
 }
 
 export function readAppIdentity(scope: QdnGlobalScope = defaultGlobalScope()): AppIdentity {
@@ -105,7 +144,7 @@ export function readAppIdentity(scope: QdnGlobalScope = defaultGlobalScope()): A
     ? (rawContext as HostContextKind)
     : 'unknown';
 
-  const name = readString(scope._qdnName);
+  const name = decodeInjectedName(readString(scope._qdnName));
   const service = readString(scope._qdnService);
   const hasBridge = typeof scope.qortalRequest === 'function';
   const interactive = hasBridge && context === 'render';

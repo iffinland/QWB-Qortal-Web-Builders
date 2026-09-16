@@ -173,8 +173,34 @@ function asRequestFn(value: unknown): QortalRequestFn | null {
   return typeof value === 'function' ? (value as QortalRequestFn) : null;
 }
 
+/**
+ * Core injects `/apps/q-apps.js` as a **classic** script, so it declares
+ * `qortalRequest` with `const`: a *lexical* global binding, not a property of
+ * `globalThis`.
+ *
+ * Verified live on 2026-09-16 inside a real render context
+ * (`/render/WEBSITE/<name>/`, Core `qortal-6.1.9-108bf19`):
+ * `typeof globalThis.qortalRequest` was `'undefined'` while the bare identifier
+ * was a function. Reading only the property therefore reported "no bridge" in a
+ * real host — owner mode could never be derived there, even though the bridge
+ * was present and answering.
+ *
+ * The `typeof` guard never throws for an undeclared identifier, so the binding
+ * is only read when the host actually declared it. The property form remains as
+ * the fallback for injected doubles.
+ */
+declare const qortalRequest: unknown;
+
+export function detectQortalRequest(): unknown {
+  if (typeof qortalRequest === 'function') return qortalRequest;
+  const candidate = (globalThis as { readonly qortalRequest?: unknown }).qortalRequest;
+  return typeof candidate === 'function' ? candidate : undefined;
+}
+
 export function defaultBridgeScope(): BridgeScope {
-  return globalThis as unknown as BridgeScope;
+  const scope = globalThis as unknown as BridgeScope;
+  if (asRequestFn(scope.qortalRequest) !== null) return scope;
+  return { qortalRequest: detectQortalRequest() };
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, action: string): Promise<T> {

@@ -127,3 +127,30 @@ describe('host context', () => {
     expect(identity.hasBridge).toBe(false);
   });
 });
+
+describe('injected publishing name', () => {
+  const INJECTED = {
+    _qdnContext: 'render',
+    _qdnService: 'WEBSITE',
+    _qdnIdentifier: 'default',
+    qortalRequest: BRIDGE,
+  };
+
+  // Live render-context probe, 2026-09-16, Core `qortal-6.1.9-108bf19`
+  // (`/render/WEBSITE/Qortal%20Web%20Builders/`): Core builds `HTMLParser` from
+  // `encodedResourceId`, so `_qdnName` is percent-encoded. The raw registered
+  // name is what `GET_ACCOUNT_NAMES`, QDN reads and publishes all use.
+  it('decodes the percent-encoded name Core injects', () => {
+    const identity = readAppIdentity({ ...INJECTED, _qdnName: 'Qortal%20Web%20Builders' });
+
+    expect(identity.name).toBe('Qortal Web Builders');
+  });
+
+  it('leaves an already-raw name untouched', () => {
+    expect(readAppIdentity({ ...INJECTED, _qdnName: 'Q-Website' }).name).toBe('Q-Website');
+  });
+
+  it('keeps a name whose percent signs are not valid escapes', () => {
+    expect(readAppIdentity({ ...INJECTED, _qdnName: '50%off%zz' }).name).toBe('50%off%zz');
+  });
+});

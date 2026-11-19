@@ -3,12 +3,11 @@
  *
  * All view modules build HTML strings. Every value that comes from content is
  * escaped here, and only hrefs with a known-safe scheme become real links:
- * in-app hash routes (`#/...`) and Qortal deep links (`qortal://...`). The
- * published site's dead `https://` links are therefore not reproduced — Core's
- * `q-apps.js` intercepts and blocks them inside a Qortal host.
+ * in-app hash routes (`#…`) and Qortal deep links (`qortal://…`).
  */
 
 import type { Inline } from '../content/schema';
+import { isAllowedHref } from '../content/schema';
 
 const ESCAPE_MAP: Readonly<Record<string, string>> = {
   '&': '&amp;',
@@ -24,7 +23,7 @@ export function escapeHtml(value: string): string {
 
 /** Only hash routes and qortal:// deep links are renderable as links. */
 export function isSafeHref(href: string): boolean {
-  return href.startsWith('#') || href.startsWith('qortal://');
+  return isAllowedHref(href);
 }
 
 export function renderInline(segments: Inline): string {

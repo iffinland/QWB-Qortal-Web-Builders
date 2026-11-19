@@ -147,3 +147,275 @@
     bottom: 16px;
   }
 }
+
+/*----------------------------------------------------------------------------------
+  Beta one-page layout: hero logo, services, portfolio, process, quotes, notices.
+----------------------------------------------------------------------------------*/
+
+/* Full logo on a white card: its navy wordmark needs a light ground. */
+.brand-logo-card {
+  border-radius: var(--border-radius-medium);
+  padding: 16px;
+}
+
+.brand-logo-image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Navbar variant: the same logo at header height. */
+.brand-logo-card--nav {
+  display: inline-flex;
+  border-radius: var(--border-radius-small);
+  padding: 4px 10px;
+  line-height: 0;
+}
+
+.brand-logo-card--nav .brand-logo-image {
+  width: auto;
+  height: 64px;
+}
+
+@media screen and (max-width: 991px) {
+  .navbar-brand {
+    margin-right: auto;
+  }
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
+@media screen and (min-width: 992px) {
+  .hero-actions {
+    justify-content: flex-start;
+  }
+}
+
+.section-intro {
+  text-align: center;
+  max-width: 46rem;
+  margin: 0 auto 2.5rem;
+}
+
+.section-heading {
+  font-size: var(--h4-font-size);
+  color: var(--primary-color);
+  margin-bottom: 0.75rem;
+}
+
+.lead-text {
+  color: var(--dark-color);
+  font-size: var(--h6-font-size);
+}
+
+/* Services */
+.service-card .service-icon {
+  display: block;
+  font-size: 2rem;
+  line-height: 1;
+  margin-bottom: 0.75rem;
+}
+
+.service-list {
+  padding-left: 1.25rem;
+  margin-bottom: 0;
+}
+
+.service-list li {
+  margin-bottom: 0.5rem;
+}
+
+/* How it works */
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background-color: var(--primary-color);
+  color: var(--white-color);
+  font-family: var(--title-font-family);
+  font-weight: var(--font-weight-bold);
+}
+
+/* Pricing & quotes */
+.quote-box {
+  border-radius: var(--border-radius-medium);
+  padding: 40px;
+}
+
+.pricing-lines {
+  list-style: none;
+  padding-left: 0;
+  margin-bottom: 1rem;
+}
+
+.pricing-lines li {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 0.75rem;
+}
+
+/* Contact */
+.contact-column-title {
+  font-size: var(--h5-font-size);
+  color: var(--primary-color);
+}
+
+/* Footer links */
+.site-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  list-style: none;
+  padding-left: 0;
+}
+
+.site-footer-mark {
+  width: 64px;
+  height: 64px;
+}
+
+/* Notices */
+.content-notice {
+  max-width: 1200px;
+  margin: 16px auto 0;
+  padding: 12px 20px;
+  border-radius: var(--border-radius-small);
+  background-color: var(--accent-note-bg);
+  color: var(--dark-color);
+  text-align: center;
+  font-size: var(--copyright-font-size);
+}
+
+/*----------------------------------------------------------------------------------
+  Project pages
+----------------------------------------------------------------------------------*/
+.work-figure {
+  margin: 0 0 24px;
+}
+
+.work-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--border-radius-medium);
+  box-shadow: var(--card-shadow);
+}
+
+.work-video {
+  display: block;
+  width: 100%;
+  border-radius: var(--border-radius-medium);
+  background-color: var(--dark-color);
+}
+
+.work-about p {
+  font-size: var(--copyright-font-size);
+}
+
+.work-link {
+  display: block;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+/*----------------------------------------------------------------------------------
+  Owner console (visible only to a verified owner)
+----------------------------------------------------------------------------------*/
+.owner-console {
+  background-color: var(--section-bg-color);
+  border-top: 4px solid var(--secondary-color);
+}
+
+.owner-meta {
+  color: var(--p-color);
+  font-size: var(--copyright-font-size);
+}
+
+.owner-notice,
+.owner-result {
+  min-height: 1.5em;
+  color: var(--dark-color);
+  font-size: var(--copyright-font-size);
+}
+
+.owner-collection {
+  margin-bottom: 32px;
+}
+
+.owner-list {
+  list-style: none;
+  padding-left: 0;
+  margin-top: 12px;
+}
+
+.owner-item {
+  background-color: var(--white-color);
+  border-radius: var(--border-radius-small);
+  box-shadow: var(--card-shadow);
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+
+.owner-item-title {
+  font-size: var(--copyright-font-size);
+}
+
+.owner-id {
+  font-size: 12px;
+}
+
+.owner-badge {
+  display: inline-block;
+  background-color: var(--accent-note-bg);
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-size: 13px;
+}
+
+.owner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.owner-actions .btn {
+  font-size: 14px;
+  padding: 6px 12px;
+}
+
+.owner-actions .btn:disabled {
+  opacity: 0.5;
+}
+
+.owner-editor {
+  background-color: var(--white-color);
+  border-radius: var(--border-radius-medium);
+  box-shadow: var(--card-shadow);
+  padding: 24px;
+  margin-top: 24px;
+}
+
+.owner-label {
+  display: block;
+  font-size: var(--copyright-font-size);
+  margin-bottom: 6px;
+}
+
+.owner-json {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  border: 1px solid var(--secondary-color);
+  border-radius: var(--border-radius-small);
+  padding: 12px;
+}

@@ -4,184 +4,160 @@ import { seedBundle } from '../src/content/seed';
 import {
   MAX_IDENTIFIER_LENGTH,
   SCHEMA_VERSION,
+  SECTION_IDS,
   identifierPrefixFor,
+  isAllowedHref,
   isEntityKind,
   isValidIdentifier,
+  isValidSlug,
   validateBundle,
   validateEntity,
 } from '../src/content/schema';
-import type { SiteEntity } from '../src/content/schema';
+import type { WorkEntity } from '../src/content/schema';
+import { allSeedEntities } from './helpers';
 
-describe('identifier policy', () => {
-  it('maps every kind to its approved prefix', () => {
+function work(): WorkEntity {
+  return seedBundle.works[0]!;
+}
+
+describe('identifier and kind policy', () => {
+  it('maps every kind to its prefix and no longer knows the removed kinds', () => {
     expect(identifierPrefixFor('site')).toBe('qwb_site_');
-    expect(identifierPrefixFor('highlight')).toBe('qwb_hl_');
     expect(identifierPrefixFor('service')).toBe('qwb_svc_');
-    expect(identifierPrefixFor('step')).toBe('qwb_step_');
     expect(identifierPrefixFor('work')).toBe('qwb_work_');
-    expect(identifierPrefixFor('price')).toBe('qwb_price_');
-    expect(identifierPrefixFor('article')).toBe('qwb_post_');
-  });
-
-  it('rejects identifiers that break the character or length rule', () => {
-    expect(isValidIdentifier('qwb_work_kaubamaja-2f19x7-k3')).toBe(true);
-    expect(isValidIdentifier('qwb_work_Upper-Case')).toBe(false);
-    expect(isValidIdentifier('qwb_work_has space')).toBe(false);
-    expect(isValidIdentifier(`qwb_work_${'a'.repeat(MAX_IDENTIFIER_LENGTH)}`)).toBe(false);
-  });
-
-  it('recognises entity kinds only', () => {
+    expect(isEntityKind('highlight')).toBe(false);
     expect(isEntityKind('work')).toBe(true);
-    expect(isEntityKind('gallery')).toBe(false);
     expect(isEntityKind(undefined)).toBe(false);
+  });
+
+  it('enforces the character, length and slug rules', () => {
+    expect(isValidIdentifier('qwb_work_asot-k3f9-d1')).toBe(true);
+    expect(isValidIdentifier('qwb_work_Upper')).toBe(false);
+    expect(isValidIdentifier(`qwb_work_${'a'.repeat(MAX_IDENTIFIER_LENGTH)}`)).toBe(false);
+    expect(isValidSlug('asot-a-state-of-trance')).toBe(true);
+    expect(isValidSlug('Bad Slug')).toBe(false);
+    expect(isValidSlug('double--hyphen')).toBe(false);
+    expect(isValidSlug('')).toBe(false);
+  });
+
+  it('allows only in-app hashes and Qortal deep links', () => {
+    expect(isAllowedHref('#services')).toBe(true);
+    expect(isAllowedHref('qortal://WEBSITE/Qortal%20Web%20Builders')).toBe(true);
+    expect(isAllowedHref('https://example.org')).toBe(false);
+    expect(isAllowedHref('javascript:alert(1)')).toBe(false);
   });
 });
 
 describe('validateEntity', () => {
   it('accepts every seed entity', () => {
-    const entities = [
-      seedBundle.site,
-      ...seedBundle.highlights,
-      ...seedBundle.services,
-      ...seedBundle.steps,
-      ...seedBundle.works,
-      ...seedBundle.prices,
-      ...seedBundle.articles,
-    ];
-
-    for (const entity of entities) {
+    for (const entity of allSeedEntities()) {
       const result = validateEntity(entity);
-      expect(result.ok, `expected ${entity.id} to validate`).toBe(true);
+      expect(result.ok, `${entity.id}: ${result.ok ? '' : result.errors.join(' | ')}`).toBe(true);
     }
   });
 
   it('rejects an unknown schema version instead of rendering it', () => {
-    const entity = { ...seedBundle.works[0], schema: SCHEMA_VERSION + 1 };
-    const result = validateEntity(entity);
+    const result = validateEntity({ ...work(), schema: SCHEMA_VERSION + 1 });
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.errors.join(' ')).toContain('schema');
   });
 
   it('rejects a mismatched identifier prefix', () => {
-    const entity = { ...seedBundle.works[0], id: 'qwb_price_wrong-prefix' };
-    const result = validateEntity(entity);
+    const result = validateEntity({ ...work(), id: 'qwb_price_wrong-prefix' });
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.errors.join(' ')).toContain('qwb_work_');
   });
 
-  it('rejects a malformed payload', () => {
-    const broken = {
-      ...seedBundle.works[0],
-      payload: { ...seedBundle.works[0]!.payload, links: [], featured: 'yes' },
-    };
+  it('requires the owner-visibility flag', () => {
+    const withoutFlag: Record<string, unknown> = { ...work() };
+    delete withoutFlag.hidden;
+    const result = validateEntity(withoutFlag);
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.errors.join(' ')).toContain('hidden');
+  });
+
+  it('rejects a malformed project payload with the failing path', () => {
+    const broken = { ...work(), payload: { ...work().payload, links: [], featured: 'yes' } };
     const result = validateEntity(broken);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.errors.join(' ')).toContain('featured');
-    expect(result.errors.join(' ')).toContain('at least one link');
+    expect(result.errors.join(' ')).toContain('links');
   });
 
-  it('rejects a QDN image reference without a publishing name', () => {
-    const broken = {
-      ...seedBundle.works[0],
+  it('requires at least one image and a valid slug on a project', () => {
+    const noImages = { ...work(), payload: { ...work().payload, images: [] } };
+    const badSlug = { ...work(), payload: { ...work().payload, slug: 'Not A Slug' } };
+    expect(validateEntity(noImages).ok).toBe(false);
+    expect(validateEntity(badSlug).ok).toBe(false);
+  });
+
+  it('refuses plain https links, which are dead inside a Qortal host', () => {
+    const payload = { ...work().payload, links: [{ label: 'Site', href: 'https://example.org' }] };
+    const result = validateEntity({ ...work(), payload });
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.errors.join(' ')).toContain('qortal://');
+  });
+
+  it('validates an optional video reference', () => {
+    const withVideo = {
+      ...work(),
       payload: {
-        ...seedBundle.works[0]!.payload,
-        cover: { source: 'qdn', service: 'THUMBNAIL', identifier: 'x', filename: 'a.png', alt: '' },
+        ...work().payload,
+        video: { name: 'Qortal Web Builders', identifier: 'qwb_work_v-1', filename: '', title: '' },
       },
     };
-    const result = validateEntity(broken);
+    const result = validateEntity(withVideo);
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.errors.join(' ')).toContain('alt');
-  });
-
-  it('rejects a highlight with an unknown variant', () => {
-    const broken = {
-      ...seedBundle.highlights[0],
-      payload: { ...seedBundle.highlights[0]!.payload, variant: 'fancy' },
-    };
-    const result = validateEntity(broken);
-    expect(result.ok).toBe(false);
-    expect(result.ok === false && result.errors.join(' ')).toContain('variant');
-  });
-});
-
-describe('site section validation', () => {
-  it('accepts the seed sections, including the pane CTA', () => {
-    const withCta = {
-      ...seedBundle.site,
-      payload: {
-        ...seedBundle.site.payload,
-        sections: [
-          { id: 'section_1', label: 'Hero', visible: true },
-          { id: 'section_2', label: 'Pane', visible: true, cta: { label: 'Go', href: '#/works' } },
-        ],
-      },
-    };
-    expect(validateEntity(withCta).ok).toBe(true);
-  });
-
-  it('rejects a malformed section instead of rendering it', () => {
-    const bad = {
-      ...seedBundle.site,
-      payload: {
-        ...seedBundle.site.payload,
-        sections: [{ id: 'section_1', label: 'Hero', visible: true, cta: { label: 'Go' } }],
-      },
-    };
-    const result = validateEntity(bad);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.errors.join('\n')).toContain('cta.href');
-    }
+    expect(result.ok === false && result.errors.join(' ')).toContain('video.filename');
   });
 });
 
 describe('validateBundle', () => {
-  it('accepts the seed bundle and requires the site singleton', () => {
+  it('accepts the seed bundle', () => {
     expect(validateBundle(seedBundle).ok).toBe(true);
+  });
 
-    const withoutSite = { ...seedBundle, site: undefined };
-    const result = validateBundle(withoutSite);
+  it('keeps the one-page layout to exactly the six approved sections, in order', () => {
+    expect(SECTION_IDS).toEqual([
+      'hero',
+      'services',
+      'portfolio',
+      'how-it-works',
+      'pricing',
+      'contact',
+    ]);
+    const reordered = {
+      ...seedBundle,
+      site: {
+        ...seedBundle.site,
+        payload: {
+          ...seedBundle.site.payload,
+          sections: [...seedBundle.site.payload.sections].reverse(),
+        },
+      },
+    };
+    const result = validateBundle(reordered);
     expect(result.ok).toBe(false);
+    expect(result.ok === false && result.errors.join(' ')).toContain('exactly');
   });
 
-  it('reports a wrong kind inside a list', () => {
-    const mixed = { ...seedBundle, works: [seedBundle.prices[0]] };
-    const result = validateBundle(mixed);
+  it('rejects a duplicate project slug', () => {
+    const first = seedBundle.works[0]!;
+    const second = seedBundle.works[1]!;
+    const duplicate = {
+      ...seedBundle,
+      works: [first, { ...second, payload: { ...second.payload, slug: first.payload.slug } }],
+    };
+    const result = validateBundle(duplicate);
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.errors.join(' ')).toContain('expected kind work');
+    expect(result.ok === false && result.errors.join(' ')).toContain('duplicate slug');
   });
 
-  it('keeps every seed identifier unique and inside the policy', () => {
-    const ids = [
-      seedBundle.site.id,
-      ...seedBundle.highlights.map((entity) => entity.id),
-      ...seedBundle.services.map((entity) => entity.id),
-      ...seedBundle.steps.map((entity) => entity.id),
-      ...seedBundle.works.map((entity) => entity.id),
-      ...seedBundle.prices.map((entity) => entity.id),
-      ...seedBundle.articles.map((entity) => entity.id),
-    ];
-
-    expect(new Set(ids).size).toBe(ids.length);
-    ids.forEach((id) => expect(isValidIdentifier(id), id).toBe(true));
-  });
-
-  it('uses sparse ordering values', () => {
-    const orders = seedBundle.works.map((work) => work.order);
-    expect(orders).toEqual([...orders].sort((a, b) => a - b));
-    expect(orders.every((order) => order % 10 === 0)).toBe(true);
-  });
-
-  it('carries the repositioned message and no legacy stock imagery', () => {
-    const site: SiteEntity = seedBundle.site;
-    const serialised = JSON.stringify(seedBundle);
-
-    expect(site.payload.meta.description.toLowerCase()).toContain('custom qortal apps');
-    expect(site.payload.nav).toHaveLength(4);
-    expect(serialised).not.toContain('Builded to HTML Template');
-    expect(serialised).not.toMatch(/\.(jpe?g)"/i);
-    expect(serialised).not.toContain('qortal.org');
-    expect(serialised).toContain('qortal://');
+  it('does not contain outdated prices or the removed template copy', () => {
+    const text = JSON.stringify(seedBundle);
+    expect(text).not.toMatch(/\d+\s*QORT/);
+    expect(text).not.toContain('Builded to HTML Template');
+    expect(text).not.toContain('QWBT-1');
   });
 });

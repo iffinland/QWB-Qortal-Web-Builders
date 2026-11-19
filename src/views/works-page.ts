@@ -3,37 +3,24 @@ import { renderPageHeader } from './page-header';
 import { renderWorksGrid } from './works';
 import type { View } from './types';
 
-/**
- * Completed works: the published gradient header band (breadcrumb + headline +
- * illustration card) followed by the 3/2/1-column portfolio grid.
- *
- * The published header's live-demo/template-gallery CTA reinforced the old
- * "ready-made template" positioning; it is replaced by a custom-build CTA while
- * the band's composition (headline, note line, centred pill) is unchanged.
- */
+/** All projects: the full portfolio, each card opening its own project page. */
 export function createWorksView(content: ContentBundle): View {
   const { site, works } = content;
-  const newest = works[0];
+  const first = works[0];
 
   return {
-    title: `Completed works | ${site.title}`,
+    title: `Portfolio | ${site.title}`,
     description:
-      'Websites and Qortal apps built by Qortal Web Builders, each with a live QDN address you can open.',
+      'Websites and Qortal apps built by Qortal Web Builders, each with a project page and direct links to the live site.',
     html: `      <main id="main-content">
 ${renderPageHeader({
-  breadcrumbs: [{ label: 'Homepage', href: '#/' }, { label: 'Completed works' }],
-  heading: 'Gallery of our completed works',
-  ...(newest === undefined
+  breadcrumbs: [{ label: 'Home', href: '#/' }, { label: 'Portfolio' }],
+  heading: 'Our portfolio',
+  ...(first === undefined || first.payload.images[0] === undefined
     ? {}
-    : {
-        cover: {
-          source: 'placeholder',
-          label: newest.title,
-          alt: `Preview of ${newest.title}`,
-        },
-      }),
-  note: 'Every project below is published on the Qortal Data Network and opens under its own QDN address. Custom design and custom code mean the same starting point never produces the same website twice.',
-  cta: { label: 'Start your project', href: 'qortal://APP/Q-Mail/to/Qortal20Web%20Builders' },
+    : { cover: first.payload.images[0] }),
+  note: 'Every project below is published on the Qortal Data Network. Open a project for its gallery, description and live links.',
+  cta: { label: 'Request a free quote', href: 'qortal://APP/Q-Mail/to/Qortal20Web%20Builders' },
 })}
         <section class="works-section section-padding">
           <div class="container">

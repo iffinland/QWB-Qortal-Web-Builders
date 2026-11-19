@@ -1,25 +1,25 @@
 /**
- * QWB content schema.
+ * QWB content schema (beta).
  *
- * This is the approved entity envelope from the target architecture (§6.2):
- * every editable thing is one QDN resource carrying `schema`, its own `id`,
- * `kind`, a monotonically increasing `rev`, a lifecycle `state` and a sparse
- * `order` value, plus a kind-specific `payload`.
+ * Every editable thing is one QDN JSON resource carrying the approved envelope:
+ * `schema`, its own `id` (= the QDN identifier), `kind`, a monotonically
+ * increasing `rev` (the write-verification handle), a lifecycle `state`
+ * (`active` | `deleted`), a `hidden` flag (owner hides without deleting), a
+ * sparse `order`, and a kind-specific `payload`.
  *
- * Phase 1 renders `seed.ts` through this model. Phase 2/3 add owner editing and
- * QDN read/write through `repository.ts` without changing these types.
+ * Nothing in this module touches the network or the DOM. Validation returns
+ * explicit error paths so that an invalid entity is never rendered silently.
  */
 
 export const SCHEMA_VERSION = 1;
 
-export type EntityKind = 'site' | 'highlight' | 'service' | 'step' | 'work' | 'price' | 'article';
+export type EntityKind = 'site' | 'service' | 'step' | 'work' | 'price' | 'article';
 
 export type EntityState = 'active' | 'deleted';
 
-/** QDN identifier prefix per entity kind (approved identifier policy). */
+/** QDN identifier prefix per entity kind. */
 const KIND_PREFIX: Readonly<Record<EntityKind, string>> = {
   site: 'qwb_site_',
-  highlight: 'qwb_hl_',
   service: 'qwb_svc_',
   step: 'qwb_step_',
   work: 'qwb_work_',
@@ -31,7 +31,7 @@ export function identifierPrefixFor(kind: EntityKind): string {
   return KIND_PREFIX[kind];
 }
 
-/** Approved identifier policy: lowercase `[a-z0-9_-]`, <= 60 characters. */
+/** Identifier policy: lowercase `[a-z0-9_-]`, at most 60 characters. */
 export const MAX_IDENTIFIER_LENGTH = 60;
 
 const IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
@@ -44,16 +44,33 @@ export function isEntityKind(value: unknown): value is EntityKind {
   return typeof value === 'string' && Object.hasOwn(KIND_PREFIX, value);
 }
 
+/** Public URL slugs (project and article routes): lowercase words joined by hyphens. */
+export const MAX_SLUG_LENGTH = 80;
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export function isValidSlug(slug: string): boolean {
+  return slug.length <= MAX_SLUG_LENGTH && SLUG_PATTERN.test(slug);
+}
+
+/**
+ * Links may only point inside the app (`#…`) or to a Qortal deep link. Plain
+ * `https://` links are dead inside a Qortal host (Core's q-apps.js blocks them),
+ * so the schema refuses them rather than rendering broken anchors.
+ */
+export function isAllowedHref(href: string): boolean {
+  return href.startsWith('#') || href.startsWith('qortal://');
+}
+
 /** A reference to an image, resolved to a URL only at render time. */
 export type ImageRef =
   | {
-      /** Shipped inside the published app archive (brand/structural asset). */
+      /** Shipped inside the app archive (brand or structural asset). */
       readonly source: 'bundled';
       readonly src: string;
       readonly alt: string;
     }
   | {
-      /** QDN-managed content media; resolved to an absolute /arbitrary/... URL. */
+      /** QDN-managed media; resolved to an absolute /arbitrary/... URL. */
       readonly source: 'qdn';
       readonly service: 'THUMBNAIL' | 'IMAGE';
       readonly name: string;
@@ -62,13 +79,21 @@ export type ImageRef =
       readonly alt: string;
     }
   | {
-      /** Phase-1 seed placeholder; replaced by QDN media once the owner edits. */
+      /** Placeholder cover used until the owner publishes real media. */
       readonly source: 'placeholder';
       readonly label: string;
       readonly alt: string;
     };
 
-/** A link target: either an in-app hash route (`#/works`) or a Qortal deep link. */
+/** A QDN-hosted video (service VIDEO). Optional on a project. */
+export interface VideoRef {
+  readonly name: string;
+  readonly identifier: string;
+  readonly filename: string;
+  readonly title: string;
+}
+
+/** A link target: an in-app hash route or a Qortal deep link. */
 export interface LinkRef {
   readonly label: string;
   readonly href: string;
@@ -87,6 +112,28 @@ export interface NavItem {
   readonly href: string;
 }
 
+/**
+ * The one-page layout. Exactly these six sections, in this order. Their ids are
+ * the DOM anchors (`#services`, `#portfolio`, …) and the legacy `#section_N`
+ * links are mapped onto them by the router.
+ */
+export const SECTION_IDS = [
+  'hero',
+  'services',
+  'portfolio',
+  'how-it-works',
+  'pricing',
+  'contact',
+] as const;
+
+export type SectionId = (typeof SECTION_IDS)[number];
+
+export interface SiteSection {
+  readonly id: SectionId;
+  readonly label: string;
+  readonly visible: boolean;
+}
+
 export interface ContactRow {
   readonly label: string;
   readonly value: string;
@@ -98,33 +145,25 @@ export interface ContactColumn {
   readonly rows: readonly ContactRow[];
 }
 
-export interface SiteSection {
-  readonly id: string;
-  readonly label: string;
-  readonly visible: boolean;
-  /**
-   * Optional call to action shown inside the section. Owner-editable content
-   * (the "What we build" pane's CTA lives here rather than in code).
-   */
-  readonly cta?: LinkRef;
-}
-
 export interface SitePayload {
   readonly brand: {
     readonly name: string;
-    readonly markSrc: string;
-    readonly since: string;
     readonly tagline: string;
+    readonly since: string;
   };
+  readonly logo: ImageRef;
+  readonly mark: ImageRef;
   readonly nav: readonly NavItem[];
   readonly hero: {
     readonly heading: string;
     readonly subtitle: string;
+    readonly primaryCta: LinkRef;
+    readonly secondaryCta: LinkRef;
   };
   readonly sections: readonly SiteSection[];
-  readonly tabs: readonly { readonly label: string }[];
   readonly contact: {
     readonly heading: string;
+    readonly intro: string;
     readonly columns: readonly ContactColumn[];
   };
   readonly footer: {
@@ -137,31 +176,30 @@ export interface SitePayload {
   };
 }
 
-export interface HighlightPayload {
-  readonly body: string;
-  readonly bullets: readonly string[];
-  readonly variant: 'plain' | 'overlay';
-  readonly cta: LinkRef;
-}
-
 export interface ServicePayload {
   readonly summary: string;
   readonly bullets: readonly string[];
   readonly icon: string;
-  readonly link?: LinkRef;
+  readonly cta?: LinkRef;
 }
 
 export interface StepPayload {
   readonly description: string;
   readonly illustration: ImageRef;
-  readonly link?: LinkRef;
 }
 
 export interface WorkPayload {
-  readonly buildKind: string;
+  /** Public route segment: `#/work/<slug>`. Permanent once published. */
+  readonly slug: string;
   readonly summary: string;
+  /** Long-form description, one entry per paragraph. */
+  readonly description: readonly string[];
+  readonly categories: readonly string[];
+  /** At least one image; the first is the card cover. */
+  readonly images: readonly ImageRef[];
+  readonly video?: VideoRef;
+  /** Direct Qortal links to the live project (at least one). */
   readonly links: readonly LinkRef[];
-  readonly cover: ImageRef;
   readonly featured: boolean;
 }
 
@@ -171,6 +209,7 @@ export interface PriceLine {
 }
 
 export interface PricePayload {
+  readonly intro: string;
   readonly lines: readonly PriceLine[];
   readonly cta: LinkRef;
   readonly note: string;
@@ -191,7 +230,7 @@ export interface ArticlePayload {
 }
 
 export interface EntityEnvelope<K extends EntityKind, P> {
-  /** Payload format version. Unknown versions must never be rendered silently. */
+  /** Payload format version. Unknown versions are rejected, never rendered. */
   readonly schema: number;
   /** The QDN identifier, duplicated inside the payload. Permanent identity. */
   readonly id: string;
@@ -199,17 +238,18 @@ export interface EntityEnvelope<K extends EntityKind, P> {
   /** Monotonically increasing per entity; the write-verification handle. */
   readonly rev: number;
   readonly state: EntityState;
+  /** Owner-controlled visibility. A hidden entity is kept but not shown publicly. */
+  readonly hidden: boolean;
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly deletedAt: number | null;
-  /** Sparse ordering (10, 20, 30 …): a reorder republishes one entity. */
+  /** Sparse ordering (10, 20, 30 …): a reorder republishes the affected entities. */
   readonly order: number;
   readonly title: string;
   readonly payload: P;
 }
 
 export type SiteEntity = EntityEnvelope<'site', SitePayload>;
-export type HighlightEntity = EntityEnvelope<'highlight', HighlightPayload>;
 export type ServiceEntity = EntityEnvelope<'service', ServicePayload>;
 export type StepEntity = EntityEnvelope<'step', StepPayload>;
 export type WorkEntity = EntityEnvelope<'work', WorkPayload>;
@@ -217,23 +257,27 @@ export type PriceEntity = EntityEnvelope<'price', PricePayload>;
 export type ArticleEntity = EntityEnvelope<'article', ArticlePayload>;
 
 export type AnyEntity =
-  | SiteEntity
-  | HighlightEntity
-  | ServiceEntity
-  | StepEntity
-  | WorkEntity
-  | PriceEntity
-  | ArticleEntity;
+  SiteEntity | ServiceEntity | StepEntity | WorkEntity | PriceEntity | ArticleEntity;
 
+/** The collections of a site. `site` is a singleton; every other key is a list. */
 export interface ContentBundle {
   readonly site: SiteEntity;
-  readonly highlights: readonly HighlightEntity[];
   readonly services: readonly ServiceEntity[];
   readonly steps: readonly StepEntity[];
   readonly works: readonly WorkEntity[];
   readonly prices: readonly PriceEntity[];
   readonly articles: readonly ArticleEntity[];
 }
+
+export const COLLECTION_KINDS = {
+  services: 'service',
+  steps: 'step',
+  works: 'work',
+  prices: 'price',
+  articles: 'article',
+} as const;
+
+export type CollectionKey = keyof typeof COLLECTION_KINDS;
 
 /* ------------------------------------------------------------------------ */
 /* Validation                                                                */
@@ -265,7 +309,9 @@ function checkLink(value: unknown, path: string, errors: string[]): void {
     return;
   }
   if (!isNonEmptyString(value.label)) errors.push(`${path}.label: expected a non-empty string`);
-  if (!isNonEmptyString(value.href)) errors.push(`${path}.href: expected a non-empty string`);
+  if (!isNonEmptyString(value.href) || !isAllowedHref(value.href)) {
+    errors.push(`${path}.href: expected an in-app hash or a qortal:// link`);
+  }
 }
 
 function checkImage(value: unknown, path: string, errors: string[]): void {
@@ -296,6 +342,18 @@ function checkImage(value: unknown, path: string, errors: string[]): void {
   }
 }
 
+function checkVideo(value: unknown, path: string, errors: string[]): void {
+  if (!isRecord(value)) {
+    errors.push(`${path}: expected a video reference`);
+    return;
+  }
+  if (!isNonEmptyString(value.name)) errors.push(`${path}.name: expected a publishing name`);
+  if (!isNonEmptyString(value.identifier))
+    errors.push(`${path}.identifier: expected an identifier`);
+  if (!isNonEmptyString(value.filename)) errors.push(`${path}.filename: expected a filename`);
+  if (!isNonEmptyString(value.title)) errors.push(`${path}.title: expected a non-empty string`);
+}
+
 function checkInline(value: unknown, path: string, errors: string[]): void {
   if (!Array.isArray(value)) {
     errors.push(`${path}: expected an array of text segments`);
@@ -304,6 +362,13 @@ function checkInline(value: unknown, path: string, errors: string[]): void {
   value.forEach((segment, index) => {
     if (!isRecord(segment) || !isNonEmptyString(segment.text)) {
       errors.push(`${path}[${index}]: expected a text segment`);
+      return;
+    }
+    if (
+      segment.href !== undefined &&
+      (typeof segment.href !== 'string' || !isAllowedHref(segment.href))
+    ) {
+      errors.push(`${path}[${index}].href: expected an in-app hash or a qortal:// link`);
     }
   });
 }
@@ -334,6 +399,55 @@ function checkArticleBlock(value: unknown, path: string, errors: string[]): void
   }
 }
 
+function checkSite(payload: Record<string, unknown>, path: string, errors: string[]): void {
+  if (!isRecord(payload.brand)) errors.push(`${path}.brand: expected an object`);
+  checkImage(payload.logo, `${path}.logo`, errors);
+  checkImage(payload.mark, `${path}.mark`, errors);
+  if (!Array.isArray(payload.nav)) {
+    errors.push(`${path}.nav: expected an array`);
+  } else {
+    payload.nav.forEach((item, index) => checkLink(item, `${path}.nav[${index}]`, errors));
+  }
+  if (!isRecord(payload.hero)) {
+    errors.push(`${path}.hero: expected an object`);
+  } else {
+    checkLink(payload.hero.primaryCta, `${path}.hero.primaryCta`, errors);
+    checkLink(payload.hero.secondaryCta, `${path}.hero.secondaryCta`, errors);
+  }
+  if (!isRecord(payload.meta)) errors.push(`${path}.meta: expected an object`);
+
+  // Exactly the six approved sections, in order: no extras, no duplicates, none missing.
+  if (!Array.isArray(payload.sections)) {
+    errors.push(`${path}.sections: expected an array`);
+  } else {
+    const ids = payload.sections.map((section) => (isRecord(section) ? section.id : undefined));
+    const expected = [...SECTION_IDS] as string[];
+    if (ids.length !== expected.length || ids.some((id, index) => id !== expected[index])) {
+      errors.push(`${path}.sections: expected exactly ${expected.join(', ')} in this order`);
+    }
+    payload.sections.forEach((section, index) => {
+      const sectionPath = `${path}.sections[${index}]`;
+      if (!isRecord(section)) {
+        errors.push(`${sectionPath}: expected an object`);
+        return;
+      }
+      if (!isNonEmptyString(section.label)) {
+        errors.push(`${sectionPath}.label: expected a non-empty string`);
+      }
+      if (typeof section.visible !== 'boolean') {
+        errors.push(`${sectionPath}.visible: expected a boolean`);
+      }
+    });
+  }
+
+  if (!isRecord(payload.contact)) {
+    errors.push(`${path}.contact: expected an object`);
+  } else if (!Array.isArray(payload.contact.columns)) {
+    errors.push(`${path}.contact.columns: expected an array`);
+  }
+  if (!isRecord(payload.footer)) errors.push(`${path}.footer: expected an object`);
+}
+
 function checkPayload(kind: EntityKind, payload: unknown, path: string, errors: string[]): void {
   if (!isRecord(payload)) {
     errors.push(`${path}: expected a payload object`);
@@ -341,44 +455,14 @@ function checkPayload(kind: EntityKind, payload: unknown, path: string, errors: 
   }
   switch (kind) {
     case 'site':
-      if (!isRecord(payload.brand)) errors.push(`${path}.brand: expected an object`);
-      if (!isRecord(payload.hero)) errors.push(`${path}.hero: expected an object`);
-      if (!isRecord(payload.meta)) errors.push(`${path}.meta: expected an object`);
-      if (!Array.isArray(payload.nav)) errors.push(`${path}.nav: expected an array`);
-      if (!Array.isArray(payload.sections)) {
-        errors.push(`${path}.sections: expected an array`);
-      } else {
-        payload.sections.forEach((section, index) => {
-          const sectionPath = `${path}.sections[${index}]`;
-          if (!isRecord(section)) {
-            errors.push(`${sectionPath}: expected an object`);
-            return;
-          }
-          if (!isNonEmptyString(section.id))
-            errors.push(`${sectionPath}.id: expected a non-empty string`);
-          if (typeof section.visible !== 'boolean') {
-            errors.push(`${sectionPath}.visible: expected a boolean`);
-          }
-          if (section.cta !== undefined) checkLink(section.cta, `${sectionPath}.cta`, errors);
-        });
-      }
-      if (!Array.isArray(payload.tabs)) errors.push(`${path}.tabs: expected an array`);
-      if (!isRecord(payload.contact)) errors.push(`${path}.contact: expected an object`);
-      if (!isRecord(payload.footer)) errors.push(`${path}.footer: expected an object`);
-      break;
-    case 'highlight':
-      if (!isNonEmptyString(payload.body)) errors.push(`${path}.body: expected a non-empty string`);
-      if (!isStringArray(payload.bullets)) errors.push(`${path}.bullets: expected a string array`);
-      if (payload.variant !== 'plain' && payload.variant !== 'overlay') {
-        errors.push(`${path}.variant: expected plain or overlay`);
-      }
-      checkLink(payload.cta, `${path}.cta`, errors);
+      checkSite(payload, path, errors);
       break;
     case 'service':
       if (!isNonEmptyString(payload.summary))
         errors.push(`${path}.summary: expected a non-empty string`);
       if (!isStringArray(payload.bullets)) errors.push(`${path}.bullets: expected a string array`);
-      if (payload.link !== undefined) checkLink(payload.link, `${path}.link`, errors);
+      if (!isNonEmptyString(payload.icon)) errors.push(`${path}.icon: expected a non-empty string`);
+      if (payload.cta !== undefined) checkLink(payload.cta, `${path}.cta`, errors);
       break;
     case 'step':
       if (!isNonEmptyString(payload.description)) {
@@ -387,11 +471,27 @@ function checkPayload(kind: EntityKind, payload: unknown, path: string, errors: 
       checkImage(payload.illustration, `${path}.illustration`, errors);
       break;
     case 'work':
-      if (!isNonEmptyString(payload.buildKind))
-        errors.push(`${path}.buildKind: expected a non-empty string`);
+      if (!isNonEmptyString(payload.slug) || !isValidSlug(payload.slug)) {
+        errors.push(`${path}.slug: expected lowercase words joined by hyphens`);
+      }
+      if (!isNonEmptyString(payload.summary))
+        errors.push(`${path}.summary: expected a non-empty string`);
+      if (!isStringArray(payload.description) || payload.description.length === 0) {
+        errors.push(`${path}.description: expected at least one paragraph`);
+      }
+      if (!isStringArray(payload.categories) || payload.categories.length === 0) {
+        errors.push(`${path}.categories: expected at least one category`);
+      }
       if (typeof payload.featured !== 'boolean')
         errors.push(`${path}.featured: expected a boolean`);
-      checkImage(payload.cover, `${path}.cover`, errors);
+      if (!Array.isArray(payload.images) || payload.images.length === 0) {
+        errors.push(`${path}.images: expected at least one image`);
+      } else {
+        payload.images.forEach((image, index) =>
+          checkImage(image, `${path}.images[${index}]`, errors),
+        );
+      }
+      if (payload.video !== undefined) checkVideo(payload.video, `${path}.video`, errors);
       if (!Array.isArray(payload.links) || payload.links.length === 0) {
         errors.push(`${path}.links: expected at least one link`);
       } else {
@@ -399,6 +499,8 @@ function checkPayload(kind: EntityKind, payload: unknown, path: string, errors: 
       }
       break;
     case 'price':
+      if (!isNonEmptyString(payload.intro))
+        errors.push(`${path}.intro: expected a non-empty string`);
       if (!Array.isArray(payload.lines)) {
         errors.push(`${path}.lines: expected an array`);
       } else {
@@ -409,9 +511,12 @@ function checkPayload(kind: EntityKind, payload: unknown, path: string, errors: 
         });
       }
       checkLink(payload.cta, `${path}.cta`, errors);
+      if (!isNonEmptyString(payload.note)) errors.push(`${path}.note: expected a non-empty string`);
       break;
     case 'article':
-      if (!isNonEmptyString(payload.slug)) errors.push(`${path}.slug: expected a non-empty string`);
+      if (!isNonEmptyString(payload.slug) || !isValidSlug(payload.slug)) {
+        errors.push(`${path}.slug: expected lowercase words joined by hyphens`);
+      }
       if (!isNonEmptyString(payload.summary))
         errors.push(`${path}.summary: expected a non-empty string`);
       checkImage(payload.heroImage, `${path}.heroImage`, errors);
@@ -460,6 +565,7 @@ export function validateEntity(value: unknown, path = 'entity'): ValidationResul
   if (value.state !== 'active' && value.state !== 'deleted') {
     errors.push(`${path}.state: expected active or deleted`);
   }
+  if (typeof value.hidden !== 'boolean') errors.push(`${path}.hidden: expected a boolean`);
   if (!isFiniteNumber(value.order)) errors.push(`${path}.order: expected a number`);
   if (!isFiniteNumber(value.createdAt)) errors.push(`${path}.createdAt: expected a number`);
   if (!isFiniteNumber(value.updatedAt)) errors.push(`${path}.updatedAt: expected a number`);
@@ -473,7 +579,10 @@ export function validateEntity(value: unknown, path = 'entity'): ValidationResul
   return { ok: true, value: value as unknown as AnyEntity };
 }
 
-/** Validates the published content bundle: one `site` singleton plus entity lists. */
+/**
+ * Validates the whole content bundle: one `site` singleton, entity lists, and
+ * cross-entity rules (unique identifiers, unique project and article slugs).
+ */
 export function validateBundle(bundle: unknown): ValidationResult<ContentBundle> {
   const errors: string[] = [];
   if (!isRecord(bundle)) return { ok: false, errors: ['bundle: expected an object'] };
@@ -507,12 +616,24 @@ export function validateBundle(bundle: unknown): ValidationResult<ContentBundle>
     return accepted;
   };
 
-  const highlights = collect('highlights', 'highlight');
   const services = collect('services', 'service');
   const steps = collect('steps', 'step');
   const works = collect('works', 'work');
   const prices = collect('prices', 'price');
   const articles = collect('articles', 'article');
+
+  errors.push(...findDuplicates(works, 'work', (entity) => entity.payload.slug, 'slug'));
+  errors.push(...findDuplicates(articles, 'article', (entity) => entity.payload.slug, 'slug'));
+  errors.push(
+    ...findDuplicates(
+      [site.ok ? site.value : null, ...services, ...steps, ...works, ...prices, ...articles].filter(
+        (entity): entity is AnyEntity => entity !== null,
+      ),
+      'entity',
+      (entity) => entity.id,
+      'identifier',
+    ),
+  );
 
   if (errors.length > 0 || !site.ok) return { ok: false, errors };
 
@@ -520,7 +641,6 @@ export function validateBundle(bundle: unknown): ValidationResult<ContentBundle>
     ok: true,
     value: {
       site: site.value as SiteEntity,
-      highlights,
       services,
       steps,
       works,
@@ -528,4 +648,20 @@ export function validateBundle(bundle: unknown): ValidationResult<ContentBundle>
       articles,
     },
   };
+}
+
+function findDuplicates<E extends AnyEntity>(
+  entities: readonly E[],
+  label: string,
+  keyOf: (entity: E) => string,
+  keyName: string,
+): string[] {
+  const seen = new Set<string>();
+  const errors: string[] = [];
+  for (const entity of entities) {
+    const key = keyOf(entity);
+    if (seen.has(key)) errors.push(`${label}: duplicate ${keyName} ${key}`);
+    seen.add(key);
+  }
+  return errors;
 }

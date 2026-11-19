@@ -1,43 +1,75 @@
 /**
  * Hash-based routing.
  *
- * The refreshed app stays a single-entry `WEBSITE` resource (approved decision
- * D1): Core's index-fallback routing applies only to `APP` resources, so every
- * dynamic view must live in the URL hash. `#/...` selects a view; a bare
- * `#section_N` keeps the published site's in-page anchor links working and is
- * resolved as "home view, scroll to that section".
+ * The app is a single-entry `WEBSITE` resource (Core's index-fallback applies only
+ * to `APP` resources), so every view lives in the URL hash:
+ *
+ *   #/ or empty          home (one page: hero, services, portfolio, how it works,
+ *                        pricing and quotes, contact)
+ *   #services, #portfolio, #how-it-works, #pricing, #contact, #hero
+ *                        home, scrolled to that section
+ *   #section_1 … #section_5
+ *                        legacy published anchors, mapped onto the sections
+ *   #/works              all projects
+ *   #/work/<slug>        one project
+ *   #/posts              article index
+ *   #/post/<slug>        one article
+ *   anything else        not found
+ *
+ * `#main-content` is reserved as a focus target (skip link), not a route.
  */
 
+import { SECTION_IDS, isValidSlug } from './content/schema';
+import type { SectionId } from './content/schema';
+
 export type Route =
-  | { readonly kind: 'home'; readonly anchor?: string }
+  | { readonly kind: 'home'; readonly anchor?: SectionId }
   | { readonly kind: 'works' }
+  | { readonly kind: 'work'; readonly slug: string }
   | { readonly kind: 'posts' }
   | { readonly kind: 'post'; readonly slug: string }
   | { readonly kind: 'not-found'; readonly hash: string };
 
-const SECTION_ANCHOR = /^section_[a-z0-9_]+$/;
-const POST_PATH = /^\/post\/([a-z0-9-]+)$/;
+/** Legacy published anchors and the one-page section each now lands on. */
+export const LEGACY_SECTION_ANCHORS: Readonly<Record<string, SectionId>> = {
+  section_1: 'hero',
+  section_2: 'services',
+  section_3: 'pricing',
+  section_4: 'how-it-works',
+  section_5: 'contact',
+};
+
+const WORK_PATH = /^\/work\/([^/]+)$/;
+const POST_PATH = /^\/post\/([^/]+)$/;
+
+function isSectionId(value: string): value is SectionId {
+  return (SECTION_IDS as readonly string[]).includes(value);
+}
 
 export function parseRoute(hash: string): Route {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash;
   const path = raw.trim();
 
   if (path === '' || path === '/') return { kind: 'home' };
+  if (isSectionId(path)) return { kind: 'home', anchor: path };
+  const legacy = LEGACY_SECTION_ANCHORS[path];
+  if (legacy !== undefined) return { kind: 'home', anchor: legacy };
+
   if (path === '/works') return { kind: 'works' };
   if (path === '/posts') return { kind: 'posts' };
 
-  const post = POST_PATH.exec(path);
-  if (post?.[1] !== undefined) return { kind: 'post', slug: post[1] };
+  const work = WORK_PATH.exec(path);
+  if (work?.[1] !== undefined && isValidSlug(work[1])) return { kind: 'work', slug: work[1] };
 
-  if (SECTION_ANCHOR.test(path)) return { kind: 'home', anchor: path };
+  const post = POST_PATH.exec(path);
+  if (post?.[1] !== undefined && isValidSlug(post[1])) return { kind: 'post', slug: post[1] };
 
   return { kind: 'not-found', hash: path };
 }
 
 /**
- * Stable identity of a route, excluding the in-page anchor: used to decide
- * whether a hash change is a real view change (scroll to top) or only a scroll
- * target inside the view already on screen.
+ * Stable identity of a route, excluding the in-page anchor: a hash change within
+ * the same view scrolls to the anchor instead of re-rendering the page.
  */
 export function routeKey(route: Route): string {
   switch (route.kind) {
@@ -45,6 +77,8 @@ export function routeKey(route: Route): string {
       return 'home';
     case 'works':
       return 'works';
+    case 'work':
+      return `work:${route.slug}`;
     case 'posts':
       return 'posts';
     case 'post':
@@ -52,4 +86,12 @@ export function routeKey(route: Route): string {
     case 'not-found':
       return `not-found:${route.hash}`;
   }
+}
+
+export function workHash(slug: string): string {
+  return `#/work/${slug}`;
+}
+
+export function postHash(slug: string): string {
+  return `#/post/${slug}`;
 }

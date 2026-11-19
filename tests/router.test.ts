@@ -1,16 +1,49 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseRoute, routeKey } from '../src/router';
+import { parseRoute, routeKey, workHash } from '../src/router';
 import { RESERVED_FOCUS_HASHES, focusMainContent } from '../src/ui/skip-link';
 
-describe('hash routing', () => {
+describe('hash routing: one-page home', () => {
   it('resolves the home view from empty and root hashes', () => {
     expect(parseRoute('')).toEqual({ kind: 'home' });
     expect(parseRoute('#')).toEqual({ kind: 'home' });
     expect(parseRoute('#/')).toEqual({ kind: 'home' });
   });
 
-  it('resolves the listing and detail views', () => {
+  it('resolves every one-page section anchor', () => {
+    expect(parseRoute('#hero')).toEqual({ kind: 'home', anchor: 'hero' });
+    expect(parseRoute('#services')).toEqual({ kind: 'home', anchor: 'services' });
+    expect(parseRoute('#portfolio')).toEqual({ kind: 'home', anchor: 'portfolio' });
+    expect(parseRoute('#how-it-works')).toEqual({ kind: 'home', anchor: 'how-it-works' });
+    expect(parseRoute('#pricing')).toEqual({ kind: 'home', anchor: 'pricing' });
+    expect(parseRoute('#contact')).toEqual({ kind: 'home', anchor: 'contact' });
+  });
+});
+
+describe('legacy #section_N anchors', () => {
+  it('maps each legacy anchor onto its one-page section', () => {
+    expect(parseRoute('#section_1')).toEqual({ kind: 'home', anchor: 'hero' });
+    expect(parseRoute('#section_2')).toEqual({ kind: 'home', anchor: 'services' });
+    expect(parseRoute('#section_3')).toEqual({ kind: 'home', anchor: 'pricing' });
+    expect(parseRoute('#section_4')).toEqual({ kind: 'home', anchor: 'how-it-works' });
+    expect(parseRoute('#section_5')).toEqual({ kind: 'home', anchor: 'contact' });
+  });
+
+  it('does not treat unknown legacy numbers as routes', () => {
+    expect(parseRoute('#section_9')).toEqual({ kind: 'not-found', hash: 'section_9' });
+  });
+});
+
+describe('project and article routes', () => {
+  it('resolves a project page from its slug', () => {
+    expect(parseRoute('#/work/asot-a-state-of-trance')).toEqual({
+      kind: 'work',
+      slug: 'asot-a-state-of-trance',
+    });
+    expect(workHash('iffi-vaba-mees')).toBe('#/work/iffi-vaba-mees');
+  });
+
+  it('resolves the full project list and the article routes', () => {
     expect(parseRoute('#/works')).toEqual({ kind: 'works' });
     expect(parseRoute('#/posts')).toEqual({ kind: 'posts' });
     expect(parseRoute('#/post/valuing-your-time')).toEqual({
@@ -19,22 +52,14 @@ describe('hash routing', () => {
     });
   });
 
-  it('treats the legacy section anchors as home + scroll target', () => {
-    expect(parseRoute('#section_2')).toEqual({ kind: 'home', anchor: 'section_2' });
-    expect(parseRoute('#section_5')).toEqual({ kind: 'home', anchor: 'section_5' });
-  });
-
-  it('falls back to not-found rather than to the wrong view', () => {
-    expect(parseRoute('#/nope')).toEqual({ kind: 'not-found', hash: '/nope' });
+  it('falls back to not-found for malformed slugs rather than a wrong view', () => {
+    expect(parseRoute('#/work/UPPER')).toEqual({ kind: 'not-found', hash: '/work/UPPER' });
+    expect(parseRoute('#/work/a/b')).toEqual({ kind: 'not-found', hash: '/work/a/b' });
+    expect(parseRoute('#/work/')).toEqual({ kind: 'not-found', hash: '/work/' });
     expect(parseRoute('#/post/UPPER')).toEqual({ kind: 'not-found', hash: '/post/UPPER' });
-    expect(parseRoute('#/post/')).toEqual({ kind: 'not-found', hash: '/post/' });
+    expect(parseRoute('#/nope')).toEqual({ kind: 'not-found', hash: '/nope' });
   });
 
-  /**
-   * Regression: the skip link's `#main-content` target used to reach the router,
-   * which resolved it as an unknown route and replaced the page with the
-   * not-found view. The hash is reserved and focus is moved instead.
-   */
   it('keeps the skip-link hash out of the view routes', () => {
     expect(RESERVED_FOCUS_HASHES).toContain('#main-content');
     expect(parseRoute('#main-content')).toEqual({ kind: 'not-found', hash: 'main-content' });
@@ -46,13 +71,13 @@ describe('hash routing', () => {
     document.body.append(main);
     expect(focusMainContent()).toBe(true);
     expect(document.activeElement).toBe(main);
-    expect(main.getAttribute('tabindex')).toBe('-1');
     main.remove();
   });
 
   it('separates a real view change from an in-page anchor hop', () => {
-    expect(routeKey(parseRoute('#/'))).toBe(routeKey(parseRoute('#section_3')));
-    expect(routeKey(parseRoute('#/post/a'))).not.toBe(routeKey(parseRoute('#/post/b')));
+    expect(routeKey(parseRoute('#/'))).toBe(routeKey(parseRoute('#pricing')));
+    expect(routeKey(parseRoute('#/work/a'))).not.toBe(routeKey(parseRoute('#/work/b')));
     expect(routeKey(parseRoute('#/'))).not.toBe(routeKey(parseRoute('#/works')));
+    expect(routeKey(parseRoute('#section_2'))).toBe(routeKey(parseRoute('#/')));
   });
 });

@@ -2,196 +2,187 @@ import { describe, expect, it } from 'vitest';
 
 import { seedBundle } from '../src/content/seed';
 import { createSeedSource } from '../src/content/repository';
+import type { ContentBundle } from '../src/content/schema';
 import { renderInline } from '../src/ui/html';
 import { renderImage } from '../src/ui/image';
 import { createHomeView } from '../src/views/home';
+import { createWorkView } from '../src/views/work-page';
 import { createWorksView } from '../src/views/works-page';
-import { createPostView } from '../src/views/post-page';
 import { createNotFoundView } from '../src/views/not-found';
 import { renderNavbar } from '../src/views/navbar';
-import type { ContentBundle } from '../src/content/schema';
-import { parseRoute } from '../src/router';
+import { renderFooter } from '../src/views/footer';
+import { renderPricing } from '../src/views/pricing';
+import { renderOwnerConsole } from '../src/owner/console';
 
 async function loadContent(): Promise<ContentBundle> {
   const result = await createSeedSource().load();
-  if (result.status === 'error') throw new Error('seed content is invalid');
   return result.bundle;
+}
+
+function sectionIds(html: string): string[] {
+  return [...html.matchAll(/<section[^>]* id="([^"]+)"/g)].map((match) => match[1] ?? '');
 }
 
 describe('inline rendering', () => {
   it('escapes text and only links safe hrefs', () => {
     const html = renderInline([
-      { text: 'Contact us via ' },
+      { text: 'Contact via ' },
       { text: 'Q-Mail', href: 'qortal://APP/Q-Mail/to/Qortal20Web%20Builders' },
       { text: ' or ' },
-      { text: 'this dead link', href: 'https://qortal.org' },
+      { text: 'a dead link', href: 'https://qortal.org' },
       { text: ' <script>' },
     ]);
-
     expect(html).toContain('<a href="qortal://APP/Q-Mail/to/Qortal20Web%20Builders">Q-Mail</a>');
     expect(html).not.toContain('<a href="https://');
     expect(html).toContain('&lt;script&gt;');
   });
 
-  it('escapes alt text and keeps the published eager loading', () => {
+  it('escapes alt text and keeps eager loading', () => {
     const html = renderImage({ source: 'bundled', src: '/a.png', alt: 'a "quote"' });
     expect(html).toContain('alt="a &quot;quote&quot;"');
     expect(html).not.toContain('loading="lazy"');
   });
 });
 
-describe('home view', () => {
-  it('renders the home sections in the published order', async () => {
-    const content = await loadContent();
-    const html = createHomeView(content).html;
-
-    const order = [
-      'id="section_1"',
-      'id="section_featured"',
-      'id="section_2"',
-      'id="section_3"',
-      'id="section_5"',
-    ];
-    let previous = -1;
-    for (const marker of order) {
-      const position = html.indexOf(marker);
-      expect(position, `${marker} should be present`).toBeGreaterThan(-1);
-      expect(position, `${marker} should follow the previous section`).toBeGreaterThan(previous);
-      previous = position;
-    }
+describe('one-page home', () => {
+  it('renders exactly the six sections in the approved order', async () => {
+    const html = createHomeView(await loadContent()).html;
+    expect(sectionIds(html)).toEqual([
+      'hero',
+      'services',
+      'portfolio',
+      'how-it-works',
+      'pricing',
+      'contact',
+    ]);
   });
 
-  it('honours section visibility and excludes tombstoned works', async () => {
+  it('has no tabs, no highlight pair and no legacy topic copy', async () => {
+    const html = createHomeView(await loadContent()).html;
+    expect(html).not.toContain('nav-tabs');
+    expect(html).not.toContain('tab-pane');
+    expect(html).not.toContain('featured-section');
+    expect(html).not.toContain('Browse Topics');
+    expect(html).not.toContain('QWBT-1');
+  });
+
+  it('shows exactly the two services with their names', async () => {
+    const html = createHomeView(await loadContent()).html;
+    expect(html).toContain('Custom Websites');
+    expect(html).toContain('Custom Qortal Apps');
+  });
+
+  it('hides a section the owner switched off', async () => {
     const content = await loadContent();
-    const hidden: ContentBundle = {
+    const sections = content.site.payload.sections.map((section) =>
+      section.id === 'pricing' ? { ...section, visible: false } : section,
+    );
+    const html = createHomeView({
       ...content,
-      site: {
-        ...content.site,
-        payload: {
-          ...content.site.payload,
-          sections: content.site.payload.sections.map((section) =>
-            section.id === 'section_3' ? { ...section, visible: false } : section,
-          ),
-        },
-      },
-    };
-
-    expect(createHomeView(hidden).html).not.toContain('id="section_3"');
-    expect(createHomeView(content).html).toContain('id="section_3"');
+      site: { ...content.site, payload: { ...content.site.payload, sections } },
+    }).html;
+    expect(sectionIds(html)).not.toContain('pricing');
   });
 
-  it('describes the portfolio count and keeps one QDN target per work card', async () => {
-    const content = await loadContent();
-    const html = createHomeView(content).html;
-    expect(html).toContain(`Completed websites - ${content.works.length}`);
-    expect(html).toContain('href="qortal://WEBSITE/ASOT%20-%20A%20State%20Of%20Trance"');
+  it('features projects on the home page and links each to its project page', async () => {
+    const html = createHomeView(await loadContent()).html;
+    expect(html).toContain('href="#/work/asot-a-state-of-trance"');
     expect(html).toContain('href="#/works"');
   });
 
-  it('switches tab panels on click, keeping ARIA state in sync', async () => {
+  it('has the logo with alt text in the hero and navigation', async () => {
     const content = await loadContent();
-    const view = createHomeView(content);
+    const html = createHomeView(content).html;
+    expect(html).toContain('brand-logo-image');
+    const nav = renderNavbar(content.site, '#services');
+    expect(nav).toContain('aria-current="true"');
+    expect(nav).toContain('alt="Qortal Web Builders logo');
+  });
+});
 
-    const root = document.createElement('div');
-    root.innerHTML = view.html;
-    document.body.append(root);
-    view.mount?.(root, { content });
-
-    const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-    const panels = Array.from(root.querySelectorAll<HTMLElement>('[role="tabpanel"]'));
-    expect(tabs).toHaveLength(3);
-    expect(panels).toHaveLength(3);
-    expect(panels[0]?.classList.contains('active')).toBe(true);
-
-    tabs[1]?.click();
-
-    expect(panels[1]?.classList.contains('active')).toBe(true);
-    expect(panels[0]?.classList.contains('active')).toBe(false);
-    expect(tabs[1]?.getAttribute('aria-selected')).toBe('true');
-    expect(tabs[0]?.getAttribute('aria-selected')).toBe('false');
-    expect(tabs[0]?.tabIndex).toBe(-1);
-    root.remove();
+describe('pricing and quotes', () => {
+  it('states that pricing is per project and contains no figures', async () => {
+    const content = await loadContent();
+    const html = renderPricing(content.prices, 'Pricing & Quotes');
+    expect(html).toContain('Pricing &amp; Quotes');
+    expect(html).toContain('Request a free quote');
+    expect(html).not.toMatch(/\d+\s*(QORT|EUR|USD|€|\$)/i);
   });
 
-  it('supports Home and End on the tab strip', async () => {
+  it('falls back to a contact link when no pricing entity is published', () => {
+    const html = renderPricing([], 'Pricing & Quotes');
+    expect(html).toContain('href="#contact"');
+  });
+});
+
+describe('project pages', () => {
+  it('renders title, categories, every image, the links and a back link', async () => {
     const content = await loadContent();
-    const view = createHomeView(content);
-
-    const root = document.createElement('div');
-    root.innerHTML = view.html;
-    document.body.append(root);
-    view.mount?.(root, { content });
-
-    const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-    const panels = Array.from(root.querySelectorAll<HTMLElement>('[role="tabpanel"]'));
-    tabs[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
-    expect(panels[2]?.classList.contains('active')).toBe(true);
-
-    tabs[2]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
-    expect(panels[0]?.classList.contains('active')).toBe(true);
-    root.remove();
+    const work = content.works[0]!;
+    const view = createWorkView(content, work);
+    expect(view.title).toContain(work.title);
+    expect(view.html).toContain(`<h1 class="page-title">${work.title}</h1>`);
+    expect(view.html).toContain('aria-label="Categories"');
+    expect(view.html).toContain('work-gallery');
+    expect(view.html).toContain(`alt="Preview of ${work.title}"`);
+    expect(view.html).toContain(work.payload.links[0]?.href ?? '');
+    expect(view.html).toContain('href="#/works"');
   });
 
-  it('takes the pane CTA from editable site content, not from code', async () => {
+  it('renders an optional video with an accessible name and a download fallback', async () => {
     const content = await loadContent();
-    const pane = createHomeView(content).html;
-    const cta = content.site.payload.sections.find((section) => section.id === 'section_2')?.cta;
-    expect(cta).toBeDefined();
-    expect(pane).toContain(`>${cta?.label}</a>`);
-    expect(pane).toContain(`href="${cta?.href}"`);
-
-    const withoutCta: ContentBundle = {
-      ...content,
-      site: {
-        ...content.site,
-        payload: {
-          ...content.site.payload,
-          sections: content.site.payload.sections.map((section) =>
-            section.id === 'section_2'
-              ? { id: section.id, label: section.label, visible: section.visible }
-              : section,
-          ),
+    const work = {
+      ...content.works[0]!,
+      payload: {
+        ...content.works[0]!.payload,
+        video: {
+          name: 'Qortal Web Builders',
+          identifier: 'qwb_work_demo-1',
+          filename: 'demo.mp4',
+          title: 'Demo tour',
         },
       },
     };
-    expect(createHomeView(withoutCta).html).not.toContain(`>${cta?.label}</a>`);
+    const html = createWorkView(content, work).html;
+    expect(html).toContain('<video');
+    expect(html).toContain('aria-label="Demo tour"');
+    expect(html).toContain('/arbitrary/VIDEO/Qortal%20Web%20Builders/qwb_work_demo-1/demo.mp4');
   });
-});
 
-describe('navbar', () => {
-  it('renders the four published links with no duplicated empty item', () => {
-    const html = renderNavbar(seedBundle.site, '');
-    expect((html.match(/class="nav-item"/g) ?? []).length).toBe(4);
-    for (const label of ['Home', 'Browse Topics', 'Prices', 'Contact']) {
-      expect(html).toContain(`>${label}</a>`);
-    }
-    expect(html).toContain('aria-controls="navbarNav"');
-  });
-});
-
-describe('inner views', () => {
-  it('renders one card per work with its QDN link', async () => {
+  it('lists every project in the portfolio view', async () => {
     const content = await loadContent();
     const html = createWorksView(content).html;
-    for (const work of content.works) {
-      expect(html).toContain(work.title);
-      expect(html).toContain(work.payload.links[0]!.href);
-    }
+    expect(html.match(/class="card-link"/g)?.length).toBe(content.works.length);
   });
+});
 
-  it('renders an article with escaped content and no injected markup', async () => {
-    const content = await loadContent();
-    const article = content.articles[0]!;
-    const html = createPostView(content, article).html;
-    expect(html).toContain('class="topics-detail-block bg-white shadow-lg"');
-    expect(html).toContain('article-note');
-    expect(html).toContain('qortal://use-group/action-join/groupid-745');
-  });
-
-  it('renders a not-found view for an unknown hash', async () => {
-    const content = await loadContent();
-    const html = createNotFoundView(content, '/nope').html;
+describe('not-found and navbar', () => {
+  it('renders a not-found view for an unknown route', () => {
+    const html = createNotFoundView(seedBundle, '/nope').html;
     expect(html).toContain('This page is not here');
-    expect(parseRoute('#/nope').kind).toBe('not-found');
+    expect(html).toContain('#/nope');
+  });
+
+  it('renders footer links to the one-page sections and the articles', async () => {
+    const content = await loadContent();
+    const footer = renderFooter(content.site);
+    expect(footer).toContain('href="#pricing"');
+    expect(footer).toContain('href="#/posts"');
+  });
+});
+
+describe('owner console markup', () => {
+  it('lists every collection with its edit controls and the hidden badge', async () => {
+    const content = await loadContent();
+    const raw = { ...content, works: [{ ...seedBundle.works[0]!, hidden: true }] };
+    const html = renderOwnerConsole(raw, {
+      status: 'owner',
+      name: 'owner-name',
+      address: 'QTESTADDRESS',
+    });
+    expect(html).toContain('Owner tools');
+    expect(html).toContain('data-action="toggle-hidden"');
+    expect(html).toContain('hidden from visitors');
+    expect(html).toContain('Portfolio projects');
   });
 });

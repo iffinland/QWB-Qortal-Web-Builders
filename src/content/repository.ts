@@ -1,17 +1,17 @@
 /**
  * Content access boundary.
  *
- * Phase 1 loads the typed seed bundle. Phase 2/3 replace `createSeedSource()`
- * with a QDN-backed source (bounded SEARCH_QDN_RESOURCES by identifier prefix,
- * post-filtered by publishing name, payloads fetched with bounded concurrency)
- * without changing the views: they only ever see `ContentLoadResult`.
+ * A `ContentSource` produces a `ContentLoadResult` with two bundles:
+ *  - `raw`    every validated entity, including hidden and deleted ones. Only the
+ *             owner console reads it, after an owner check.
+ *  - `bundle` the public projection: active, not hidden, deterministically sorted.
+ *             Views only ever see this one.
  *
- * Deletion semantics are already implemented here because every read path in
- * the approved architecture must filter tombstones (Qortal has no
- * app-accessible QDN delete, so a delete is a republished `state: 'deleted'`).
+ * Deletion is logical (Qortal has no app-accessible QDN delete), so the tombstone
+ * and hidden filters run on every public read path.
  */
 
-import type { AnyEntity, ContentBundle } from './schema';
+import type { AnyEntity, ArticleEntity, ContentBundle, WorkEntity } from './schema';
 import { validateBundle } from './schema';
 import { seedBundle } from './seed';
 
@@ -19,8 +19,13 @@ export type ContentStatus = 'ready' | 'partial' | 'error';
 
 export interface ContentLoadResult {
   readonly status: ContentStatus;
+  /** Where the content came from: published QDN entities, or the built-in seed. */
+  readonly origin: 'qdn' | 'seed';
+  /** Public projection used by every view. */
   readonly bundle: ContentBundle;
-  /** Human-readable diagnostics; Phase 2/3 surface these instead of guessing. */
+  /** Every validated entity, hidden and deleted included. Owner tools only. */
+  readonly raw: ContentBundle;
+  /** Human-readable diagnostics for the console and the content notice. */
   readonly diagnostics: readonly string[];
 }
 
@@ -30,9 +35,14 @@ export interface ContentSource {
   load(): Promise<ContentLoadResult>;
 }
 
-/** Tombstone filter: applied on every read path. */
+/** Tombstone filter: a deleted entity is never shown. */
 export function activeEntities<E extends AnyEntity>(entities: readonly E[]): readonly E[] {
   return entities.filter((entity) => entity.state === 'active');
+}
+
+/** Public filter: active and not hidden by the owner. */
+export function publicEntities<E extends AnyEntity>(entities: readonly E[]): readonly E[] {
+  return activeEntities(entities).filter((entity) => !entity.hidden);
 }
 
 /** Deterministic ordering: sparse `order`, then creation time, then identifier. */
@@ -44,59 +54,77 @@ export function sortForDisplay<E extends AnyEntity>(entities: readonly E[]): rea
   });
 }
 
-function prepareBundle(bundle: ContentBundle): ContentBundle {
+/** Sorted, unfiltered copy: the owner console lists everything, in display order. */
+export function sortBundle(bundle: ContentBundle): ContentBundle {
   return {
     site: bundle.site,
-    highlights: sortForDisplay(activeEntities(bundle.highlights)),
-    services: sortForDisplay(activeEntities(bundle.services)),
-    steps: sortForDisplay(activeEntities(bundle.steps)),
-    works: sortForDisplay(activeEntities(bundle.works)),
-    prices: sortForDisplay(activeEntities(bundle.prices)),
-    articles: sortForDisplay(activeEntities(bundle.articles)),
+    services: sortForDisplay(bundle.services),
+    steps: sortForDisplay(bundle.steps),
+    works: sortForDisplay(bundle.works),
+    prices: sortForDisplay(bundle.prices),
+    articles: sortForDisplay(bundle.articles),
   };
 }
 
+/** Public projection of a bundle. */
+export function publicBundle(bundle: ContentBundle): ContentBundle {
+  return {
+    site: bundle.site,
+    services: sortForDisplay(publicEntities(bundle.services)),
+    steps: sortForDisplay(publicEntities(bundle.steps)),
+    works: sortForDisplay(publicEntities(bundle.works)),
+    prices: sortForDisplay(publicEntities(bundle.prices)),
+    articles: sortForDisplay(publicEntities(bundle.articles)),
+  };
+}
+
+/** Seed source: validated typed content, no network. */
 export function createSeedSource(): ContentSource {
   return {
     id: 'seed',
-    describe: 'typed Phase-1 seed content (no QDN read)',
+    describe: 'built-in beta seed content (no QDN read)',
     load: () => {
       const validation = validateBundle(seedBundle);
       if (!validation.ok) {
         return Promise.resolve({
           status: 'error' as const,
-          bundle: seedBundle,
+          origin: 'seed' as const,
+          bundle: publicBundle(seedBundle),
+          raw: sortBundle(seedBundle),
           diagnostics: validation.errors,
         });
       }
       return Promise.resolve({
         status: 'ready' as const,
-        bundle: prepareBundle(validation.value),
+        origin: 'seed' as const,
+        bundle: publicBundle(validation.value),
+        raw: sortBundle(validation.value),
         diagnostics: [],
       });
     },
   };
 }
 
-export function findArticleBySlug(
-  bundle: ContentBundle,
-  slug: string,
-): ContentBundle['articles'][number] | undefined {
+export function findArticleBySlug(bundle: ContentBundle, slug: string): ArticleEntity | undefined {
   return bundle.articles.find((article) => article.payload.slug === slug);
 }
 
-/**
- * Works shown in the home page's "Completed works" tab.
- *
- * The pane is a three-column row, so at most three are selected: fewer leaves a
- * visibly incomplete row (the published site filled all three). `featured` is
- * the owner-controlled flag; when nothing is flagged the first works in display
- * order are used so the pane is never empty.
- */
-export const FEATURED_WORK_LIMIT = 3;
+export function findWorkBySlug(bundle: ContentBundle, slug: string): WorkEntity | undefined {
+  return bundle.works.find((work) => work.payload.slug === slug);
+}
 
-export function featuredWorks(bundle: ContentBundle): ContentBundle['works'] {
-  const featured = bundle.works.filter((work) => work.payload.featured);
-  const selection = featured.length > 0 ? featured : bundle.works;
+/** Homepage portfolio: at most this many projects. */
+export const FEATURED_WORK_LIMIT = 6;
+
+/** When nothing is flagged as featured, the first projects in display order are used. */
+export const FALLBACK_WORK_COUNT = 3;
+
+/**
+ * Projects shown on the homepage. The owner's `featured` flag selects them;
+ * when nothing is flagged the first few projects keep the section populated.
+ */
+export function featuredWorks(bundle: ContentBundle): readonly WorkEntity[] {
+  const flagged = bundle.works.filter((work) => work.payload.featured);
+  const selection = flagged.length > 0 ? flagged : bundle.works.slice(0, FALLBACK_WORK_COUNT);
   return selection.slice(0, FEATURED_WORK_LIMIT);
 }

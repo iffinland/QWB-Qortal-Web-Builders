@@ -1,14 +1,11 @@
 /**
- * Navbar behaviour, reimplemented without jQuery or the Bootstrap JS bundle:
+ * Navbar behaviour, without jQuery or the Bootstrap JS bundle:
  *  - the mobile collapse toggles the `show` class Bootstrap's CSS expects;
- *  - the navbar is sticky and adopts the theme's intended scrolled state
- *    (`.navbar.is-scrolled`), which the published build never reached because
- *    its sticky plugin was never initialised;
- *  - the home page's scroll-spy highlights the section currently in view.
+ *  - the navbar is sticky and adopts the scrolled state (`.navbar.is-scrolled`);
+ *  - on the home page, a scroll-spy highlights the section currently in view.
  *
- * `mountNavbar` returns a teardown so a re-render on navigation cannot stack
- * duplicate listeners (the published site's jQuery handlers were re-bound on
- * every inline script copy).
+ * `mountNavbar` returns a teardown, so a re-render on navigation cannot stack
+ * duplicate listeners.
  */
 
 export interface NavOptions {

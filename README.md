@@ -30,13 +30,16 @@ npm run build        # tsc --noEmit && vite build  → dist/
 npm run preview      # serve the production build on :4173
 npm run typecheck    # tsc --noEmit
 npm test             # vitest run
+npm run test:browser # local Chromium editor workflow with a simulated Qortal bridge
 npm run lint         # eslint .
 npm run format       # prettier --write .
 ```
 
 ## Publishing target
 
-- Service `WEBSITE`, publishing identity (and therefore `_qdnName`) **`Qortal Web Builders`**.
+- Service `WEBSITE`. The QWB deployment uses **`Qortal Web Builders`**, but the
+  same archive can be published under any registered name. Ownership, content
+  reads/writes and Q-Mail recipients follow the name in the render URL.
 - Hash-based routing, because Core's index-fallback routing applies only to `APP`
   resources: every dynamic view lives in the URL hash (`#/works`, `#/posts`,
   `#/post/<slug>`). The legacy `#section_N` anchors still resolve to the home view.
@@ -77,10 +80,11 @@ src/views/            one module per section/view: render(data) → HTML, plus a
 tests/                vitest + jsdom
 ```
 
-Phase 2 owner controls and inline editing attach inside the existing `mount()`
-hooks on the same containers; Phase 3 swaps `createSeedSource()` for a QDN-backed
-content source. Neither requires a structural rewrite. See
-[`docs/architecture.md`](docs/architecture.md).
+Owner controls attach directly to public cards and sections and open a mobile
+modal editor; there is no visible central owner-tools bar. The
+publishing name is resolved from the Qortal render URL, ownership is checked
+fail-closed against the connected account, and every save is revision-checked,
+published to QDN and read back before success is reported.
 
 ## Status
 
@@ -88,14 +92,64 @@ content source. Neither requires a structural rewrite. See
 | ----- | ----------------------------------------------------------------- | ----------- |
 | 0     | repository, tooling, structure, reference pins, asset attribution | done        |
 | 1     | public visual baseline from typed seed content                    | done        |
-| 2     | owner recognition + owner UI shell                                | not started |
-| 3     | QDN-backed CRUD, media, truthful outcomes                         | not started |
-| 4     | owner-runtime validation, visual regression, documentation        | not started |
+| 2     | owner recognition + owner UI shell                                | done        |
+| 3     | QDN-backed CRUD, media references, truthful outcomes              | done (beta) |
+| 4     | owner-runtime validation and documentation                       | runtime passed by owner, 2026-11-20; formal visual regression pending |
 
-Explicitly **not** in this repository yet: owner recognition, owner controls,
-add/edit/delete flows, QDN reads or writes, any migration/import tooling, and
-deployment or publication. No QDN write is authorized by the existence of this
-code.
+The owner can edit site identity and assets, navigation, section visibility and
+headings, contact/footer/meta copy, services, steps, projects, pricing, articles,
+and all labels used by the public sub-pages. Collection items can be added,
+edited, hidden or tombstoned through contextual controls. Hidden items can be
+restored from the owner's hidden-content list. Section/footer visibility is
+reversible. Image and video fields accept files
+from the owner's device; media is published to QDN before the JSON entity that
+references it. Deployment of the app archive itself remains outside this
+repository. No QDN write occurs unless the verified owner explicitly saves.
+
+Rich-text fields support bold, italic, underline, headings, lists, links and
+undo/redo. DOMPurify sanitizes formatting before rendering. Navigation, contact
+rows, buttons and lists use separate labeled controls instead of technical text
+formats. Media previews support individual removal, clearing and restoring the
+original selection. Selecting a new gallery replaces the current gallery.
+
+## Build and publish
+
+```bash
+npm ci
+npm run build
+cd dist
+zip -r ../qwb-publish.zip .
+```
+
+Publish the ZIP as `WEBSITE` under the intended registered name. `index.html` and
+`assets/` must be at the archive root, without a wrapping `dist/` directory. App
+updates do not erase separately published content. Outside a recognized Qortal
+render URL the app shows built-in content and disables owner tools.
+
+Images (up to 10 MiB each) and videos (up to 200 MiB) are copied into memory as
+soon as selected, before Android's temporary file permission can expire. Media
+is published as a raw `IMAGE`/`VIDEO` resource. The device filename is metadata,
+not a URL suffix. Playback/display resolves the node URL through
+`GET_QDN_RESOURCE_URL`, with bounded build/load retries and an absolute raw URL
+fallback. Previously saved filename-bearing references remain compatible.
+
+## Validation
+
+The latest automated run passed 120 Vitest tests, TypeScript, ESLint and the
+production build. The owner confirmed real Qortal runtime tests passed on
+2026-11-20 after the published-media URL correction. That runtime confirmation
+is user-reported; automated browser tests use a simulated bridge/resource server.
+
+For the browser workflow, install Chromium (or Playwright Chromium) and FFmpeg.
+Start `npm run dev -- --host 127.0.0.1` in another terminal, then run
+`npm run test:browser`. It tests selection, byte-preserving uploads, public image
+loading/video playback, reloads, media removal, rich text, save failure/retry and
+mobile/desktop modals. `CHROMIUM_PATH` selects a system browser; `QWB_TEST_URL`
+overrides the default `http://127.0.0.1:5173`. Otherwise the test uses system
+Chromium when available, or a Playwright-installed browser (`npx playwright
+install chromium`). Screenshots go to ignored `test-results/`.
+See [`docs/architecture.md`](docs/architecture.md) for
+persistence and lifecycle details.
 
 ## Documentation
 

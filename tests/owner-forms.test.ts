@@ -61,7 +61,6 @@ describe('owner form model', () => {
     expect(result.errors).toEqual(
       expect.arrayContaining([
         expect.stringContaining('slug'),
-        'Add at least one image.',
         'Add at least one Qortal link.',
       ]),
     );

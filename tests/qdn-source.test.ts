@@ -45,6 +45,19 @@ describe('QDN content source', () => {
     const result = await createQdnSource(options(memoryReader(store))).load();
     expect(result.origin).toBe('seed');
     expect(result.diagnostics.join(' ')).toContain('site entity is not published');
+    expect(result.publishedIds).toHaveLength(allSeedEntities().length - 1);
+  });
+
+  it('merges an already-published edit into seed content before the site singleton exists', async () => {
+    const service = seedBundle.services[0]!;
+    const changed = { ...service, rev: 2, title: 'Published service title' };
+    const store = publishedStore([changed]);
+    const result = await createQdnSource(options(memoryReader(store))).load();
+    expect(result.origin).toBe('seed');
+    expect(result.raw.services.find((item) => item.id === service.id)?.title).toBe(
+      'Published service title',
+    );
+    expect(result.publishedIds).toContain(service.id);
   });
 
   it('skips an invalid entity, reports it, and keeps the rest', async () => {

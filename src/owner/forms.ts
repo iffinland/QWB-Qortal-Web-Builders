@@ -31,6 +31,7 @@ import type {
   WorkEntity,
 } from '../content/schema';
 import { isAllowedHref, isValidSlug } from '../content/schema';
+import { siteUi } from '../content/site-ui';
 
 export type FieldType = 'text' | 'textarea' | 'checkbox';
 
@@ -40,6 +41,7 @@ export interface FieldSpec {
   readonly type: FieldType;
   readonly help?: string;
   readonly rows?: number;
+  readonly media?: 'image' | 'images' | 'video' | 'file';
 }
 
 export type FormValues = Readonly<Record<string, string | boolean>>;
@@ -63,6 +65,11 @@ export const FORM_FIELDS: Readonly<Record<EntityKind, readonly FieldSpec[]>> = {
   site: [
     { name: 'title', label: 'Brand name', type: 'text' },
     { name: 'tagline', label: 'Tagline', type: 'text' },
+    { name: 'since', label: 'Brand date / since text', type: 'text' },
+    { name: 'logo', label: 'Main logo', type: 'text', help: IMAGES_HELP, media: 'image' },
+    { name: 'mark', label: 'Footer icon', type: 'text', help: IMAGES_HELP, media: 'image' },
+    { name: 'nav', label: 'Navigation', type: 'textarea', rows: 6, help: 'One per line: label | href' },
+    { name: 'sections', label: 'Home sections', type: 'textarea', rows: 6, help: 'Do not change ids. One per line: id | heading | shown (true/false)' },
     { name: 'heroHeading', label: 'Hero heading', type: 'text' },
     { name: 'heroSubtitle', label: 'Hero subtitle', type: 'textarea', rows: 3 },
     {
@@ -82,8 +89,32 @@ export const FORM_FIELDS: Readonly<Record<EntityKind, readonly FieldSpec[]>> = {
       help: 'One row per line: Column | Label | Value | href  (href: qortal://… or #…)',
     },
     { name: 'creditNote', label: 'Footer note', type: 'text' },
+    { name: 'footerCredit', label: 'Footer credit', type: 'textarea', rows: 3, help: 'One segment per line: text | optional href' },
     { name: 'metaTitle', label: 'Browser title', type: 'text' },
     { name: 'metaDescription', label: 'Search description', type: 'textarea', rows: 2 },
+    { name: 'articlesLabel', label: 'Articles label', type: 'text' },
+    { name: 'homeLabel', label: 'Home breadcrumb label', type: 'text' },
+    { name: 'portfolioLabel', label: 'Portfolio breadcrumb label', type: 'text' },
+    { name: 'portfolioIntro', label: 'Homepage portfolio intro', type: 'textarea', rows: 2 },
+    { name: 'portfolioEmpty', label: 'Empty portfolio message', type: 'text' },
+    { name: 'viewAllProjects', label: 'View-all projects button', type: 'text', help: 'Use {count} where the number should appear.' },
+    { name: 'viewProject', label: 'Project-card button', type: 'text' },
+    { name: 'worksHeading', label: 'Portfolio page heading', type: 'text' },
+    { name: 'worksDescription', label: 'Portfolio search description', type: 'textarea', rows: 2 },
+    { name: 'worksNote', label: 'Portfolio page intro', type: 'textarea', rows: 3 },
+    { name: 'worksCta', label: 'Portfolio page button', type: 'text', help: 'label | href' },
+    { name: 'postsHeading', label: 'Articles page heading', type: 'text' },
+    { name: 'postsDescription', label: 'Articles search description', type: 'textarea', rows: 2 },
+    { name: 'postsNote', label: 'Articles page intro', type: 'textarea', rows: 3 },
+    { name: 'readMore', label: 'Read-more button', type: 'text' },
+    { name: 'galleryHeading', label: 'Project gallery heading', type: 'text' },
+    { name: 'aboutProjectHeading', label: 'Project description heading', type: 'text' },
+    { name: 'openProjectHeading', label: 'Project links heading', type: 'text' },
+    { name: 'backToProjects', label: 'Back-to-projects button', type: 'text' },
+    { name: 'notFoundTitle', label: 'Not-found browser title', type: 'text' },
+    { name: 'notFoundHeading', label: 'Not-found heading', type: 'text' },
+    { name: 'notFoundMessage', label: 'Not-found message', type: 'text', help: 'Use {path} where the missing address should appear.' },
+    { name: 'backHome', label: 'Not-found back button', type: 'text' },
   ],
   service: [
     TITLE,
@@ -95,7 +126,7 @@ export const FORM_FIELDS: Readonly<Record<EntityKind, readonly FieldSpec[]>> = {
   step: [
     TITLE,
     { name: 'description', label: 'Description', type: 'textarea', rows: 3 },
-    { name: 'illustration', label: 'Illustration', type: 'text', help: IMAGES_HELP },
+    { name: 'illustration', label: 'Illustration', type: 'text', help: IMAGES_HELP, media: 'image' },
   ],
   work: [
     TITLE,
@@ -110,12 +141,13 @@ export const FORM_FIELDS: Readonly<Record<EntityKind, readonly FieldSpec[]>> = {
       help: 'One paragraph per line',
     },
     { name: 'categories', label: 'Categories', type: 'text', help: 'Comma separated' },
-    { name: 'images', label: 'Images', type: 'textarea', rows: 4, help: IMAGES_HELP },
+    { name: 'images', label: 'Images', type: 'textarea', rows: 4, help: IMAGES_HELP, media: 'images' },
     {
       name: 'video',
       label: 'Video (optional)',
       type: 'text',
       help: 'qdn | name | identifier | filename | title',
+      media: 'video',
     },
     {
       name: 'links',
@@ -142,7 +174,7 @@ export const FORM_FIELDS: Readonly<Record<EntityKind, readonly FieldSpec[]>> = {
     TITLE,
     SLUG,
     SUMMARY,
-    { name: 'heroImage', label: 'Cover image', type: 'text', help: IMAGES_HELP },
+    { name: 'heroImage', label: 'Cover image', type: 'text', help: IMAGES_HELP, media: 'image' },
     {
       name: 'body',
       label: 'Article text',
@@ -297,6 +329,7 @@ export function toValues(entity: AnyEntity): Record<string, string | boolean> {
   switch (entity.kind) {
     case 'site': {
       const p = entity.payload;
+      const ui = siteUi(entity);
       const rows = p.contact.columns.flatMap((column) =>
         column.rows.map((row) => `${column.title} | ${row.label} | ${row.value} | ${row.href}`),
       );
@@ -304,6 +337,11 @@ export function toValues(entity: AnyEntity): Record<string, string | boolean> {
         ...base,
         title: p.brand.name,
         tagline: p.brand.tagline,
+        since: p.brand.since,
+        logo: imageText(p.logo),
+        mark: imageText(p.mark),
+        nav: p.nav.map((item) => `${item.label} | ${item.href}`).join('\n'),
+        sections: p.sections.map((section) => `${section.id} | ${section.label} | ${section.visible}`).join('\n'),
         heroHeading: p.hero.heading,
         heroSubtitle: p.hero.subtitle,
         heroPrimary: linkLine(p.hero.primaryCta),
@@ -312,8 +350,11 @@ export function toValues(entity: AnyEntity): Record<string, string | boolean> {
         contactIntro: p.contact.intro,
         contactRows: rows.join('\n'),
         creditNote: p.footer.creditNote,
+        footerCredit: p.footer.credit.map((segment) => `${segment.text}${segment.href ? `| ${segment.href}` : ''}`).join('\n'),
         metaTitle: p.meta.title,
         metaDescription: p.meta.description,
+        ...ui,
+        worksCta: linkLine(ui.worksCta),
       };
     }
     case 'service':
@@ -442,6 +483,28 @@ function parseColumns(text: string, errors: string[]): ContactColumn[] {
   return columns;
 }
 
+function parseSections(text: string, errors: string[]): SiteEntity['payload']['sections'] {
+  const sections = linesOf(text).map((line) => {
+    const [id = '', label = '', shown = ''] = parts(line);
+    if (!['hero', 'services', 'portfolio', 'how-it-works', 'pricing', 'contact'].includes(id) || label === '' || !['true', 'false'].includes(shown.toLowerCase())) {
+      errors.push(`Home sections: invalid row "${line}".`);
+    }
+    return { id, label, visible: shown.toLowerCase() === 'true' };
+  });
+  return sections as SiteEntity['payload']['sections'];
+}
+
+function parseInline(text: string, errors: string[]): Inline {
+  return text.split(/\r?\n/).filter((line) => line !== '').map((line) => {
+    const separator = line.indexOf('|');
+    const body = separator < 0 ? line : line.slice(0, separator);
+    const href = separator < 0 ? '' : line.slice(separator + 1).trim();
+    if (body.trim() === '') errors.push('Footer credit: text is required.');
+    if (href !== '' && !isAllowedHref(href)) errors.push('Footer credit: href must start with # or qortal://.');
+    return href === '' ? { text: body } : { text: body, href };
+  });
+}
+
 function parsePriceLines(text: string, errors: string[]): PriceLine[] {
   const result: PriceLine[] = [];
   for (const line of linesOf(text)) {
@@ -484,13 +547,21 @@ export function fromValues(
   switch (base.kind) {
     case 'site': {
       const p = base.payload;
+      const currentUi = siteUi(base);
       const primary = parseLink(str(values, 'heroPrimary'), 'Hero button 1', errors);
       const secondary = parseLink(str(values, 'heroSecondary'), 'Hero button 2', errors);
       if (primary === null) errors.push('Hero button 1 is required.');
       if (secondary === null) errors.push('Hero button 2 is required.');
+      const logo = parseImageOne(str(values, 'logo'), 'Main logo', errors, p.logo);
+      const mark = parseImageOne(str(values, 'mark'), 'Footer icon', errors, p.mark);
+      const worksCta = parseLink(str(values, 'worksCta'), 'Portfolio page button', errors);
       payload = {
         ...p,
-        brand: { ...p.brand, name: title, tagline: str(values, 'tagline') },
+        brand: { name: title, tagline: str(values, 'tagline'), since: str(values, 'since') },
+        logo: logo ?? p.logo,
+        mark: mark ?? p.mark,
+        nav: parseLinkLines(str(values, 'nav'), 'Navigation', errors),
+        sections: parseSections(str(values, 'sections'), errors),
         hero: {
           ...p.hero,
           heading: str(values, 'heroHeading'),
@@ -504,10 +575,25 @@ export function fromValues(
           intro: str(values, 'contactIntro'),
           columns: parseColumns(str(values, 'contactRows'), errors),
         },
-        footer: { ...p.footer, creditNote: str(values, 'creditNote') },
+        footer: { credit: parseInline(str(values, 'footerCredit'), errors), creditNote: str(values, 'creditNote') },
         meta: {
           title: str(values, 'metaTitle'),
           description: str(values, 'metaDescription'),
+        },
+        ui: {
+          ...currentUi,
+          articlesLabel: str(values, 'articlesLabel'),
+          homeLabel: str(values, 'homeLabel'), portfolioLabel: str(values, 'portfolioLabel'),
+          portfolioIntro: str(values, 'portfolioIntro'), portfolioEmpty: str(values, 'portfolioEmpty'),
+          viewAllProjects: str(values, 'viewAllProjects'), viewProject: str(values, 'viewProject'),
+          worksHeading: str(values, 'worksHeading'), worksDescription: str(values, 'worksDescription'),
+          worksNote: str(values, 'worksNote'), worksCta: worksCta ?? currentUi.worksCta,
+          postsHeading: str(values, 'postsHeading'), postsDescription: str(values, 'postsDescription'),
+          postsNote: str(values, 'postsNote'), readMore: str(values, 'readMore'),
+          galleryHeading: str(values, 'galleryHeading'), aboutProjectHeading: str(values, 'aboutProjectHeading'),
+          openProjectHeading: str(values, 'openProjectHeading'), backToProjects: str(values, 'backToProjects'),
+          notFoundTitle: str(values, 'notFoundTitle'), notFoundHeading: str(values, 'notFoundHeading'),
+          notFoundMessage: str(values, 'notFoundMessage'), backHome: str(values, 'backHome'),
         },
       };
       break;
@@ -540,7 +626,6 @@ export function fromValues(
       if (!isValidSlug(slug))
         errors.push('Address (slug): use lowercase letters, digits and dashes.');
       const images = parseImages(str(values, 'images'), 'Images', errors, base.payload.images);
-      if (images.length === 0) errors.push('Add at least one image.');
       const links = parseLinkLines(str(values, 'links'), 'Qortal links', errors);
       if (links.length === 0) errors.push('Add at least one Qortal link.');
       const video = parseVideo(str(values, 'video'), errors);

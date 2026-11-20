@@ -1,10 +1,12 @@
 import type { WorkEntity } from '../content/schema';
 import { workHash } from '../router';
 import { escapeHtml } from '../ui/html';
+import { richContent } from '../owner/rich-text';
 import { renderImage } from '../ui/image';
 
 export interface WorkCardOptions {
   readonly columnClass?: string;
+  readonly buttonLabel?: string;
 }
 
 /**
@@ -19,16 +21,16 @@ export function renderWorkCard(work: WorkEntity, options: WorkCardOptions = {}):
   const cover = images[0];
 
   return `              <div class="${columnClass}">
-                <article class="custom-block bg-white shadow-lg work-card">
+                <article class="custom-block bg-white shadow-lg work-card" data-owner-collection="works" data-owner-id="${escapeHtml(work.id)}">
                   ${cover === undefined ? '' : renderImage(cover, { className: 'custom-block-image img-fluid' })}
                   <p class="card-meta mb-1">${escapeHtml(categories.join(' · '))}</p>
                   <h3 class="card-title mb-2"><a class="card-link" href="${escapeHtml(href)}">${escapeHtml(work.title)}</a></h3>
-                  <p class="card-meta mb-0">${escapeHtml(summary)}</p>
-                  <a class="btn custom-btn mt-3 card-cta" href="${escapeHtml(href)}">View project</a>
+                  <div class="card-meta mb-0 rich-content">${richContent(work, 'summary', summary)}</div>
+                  <a class="btn custom-btn mt-3 card-cta" href="${escapeHtml(href)}">${escapeHtml(options.buttonLabel ?? 'View project')}</a>
                 </article>
               </div>`;
 }
 
-export function renderWorksGrid(works: readonly WorkEntity[]): string {
-  return works.map((work) => renderWorkCard(work)).join('\n');
+export function renderWorksGrid(works: readonly WorkEntity[], buttonLabel?: string): string {
+  return works.map((work) => renderWorkCard(work, { ...(buttonLabel ? { buttonLabel } : {}) })).join('\n');
 }

@@ -105,4 +105,29 @@ describe('platform bridge', () => {
       writer.publishJson({ name: 'n', identifier: 'qwb_svc_a-1', title: 'A', value: {} }),
     ).rejects.toThrow('did not confirm');
   });
+
+  it('publishes a selected file as base64 media', async () => {
+    const request = vi.fn<(payload: Record<string, unknown>) => Promise<unknown>>(() =>
+      Promise.resolve({ signature: 'media-sig' }),
+    );
+    const writer = createBridgeWriter({ request });
+    const file = {
+      name: 'cover.png',
+      arrayBuffer: () => Promise.resolve(new TextEncoder().encode('image bytes').buffer),
+    } as File;
+    await writer.publishFile?.({
+      name: 'Owner',
+      service: 'IMAGE',
+      identifier: 'qwb_work_cover_1',
+      title: 'Cover',
+      file,
+    });
+    expect(request.mock.calls[0]?.[0]).toMatchObject({
+      action: 'PUBLISH_QDN_RESOURCE',
+      service: 'IMAGE',
+      filename: 'cover.png',
+      encoding: 'base64',
+    });
+    expect(atob(String(request.mock.calls[0]?.[0].data64))).toBe('image bytes');
+  });
 });

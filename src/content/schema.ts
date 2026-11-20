@@ -146,6 +146,7 @@ export interface ContactColumn {
 }
 
 export interface SitePayload {
+  readonly footerVisible?: boolean;
   readonly brand: {
     readonly name: string;
     readonly tagline: string;
@@ -174,6 +175,34 @@ export interface SitePayload {
     readonly title: string;
     readonly description: string;
   };
+  /** Public interface copy that used to be hard-coded in the view modules. */
+  readonly ui?: SiteUiCopy;
+}
+
+export interface SiteUiCopy {
+  readonly articlesLabel: string;
+  readonly homeLabel: string;
+  readonly portfolioLabel: string;
+  readonly portfolioIntro: string;
+  readonly portfolioEmpty: string;
+  readonly viewAllProjects: string;
+  readonly viewProject: string;
+  readonly worksHeading: string;
+  readonly worksDescription: string;
+  readonly worksNote: string;
+  readonly worksCta: LinkRef;
+  readonly postsHeading: string;
+  readonly postsDescription: string;
+  readonly postsNote: string;
+  readonly readMore: string;
+  readonly galleryHeading: string;
+  readonly aboutProjectHeading: string;
+  readonly openProjectHeading: string;
+  readonly backToProjects: string;
+  readonly notFoundTitle: string;
+  readonly notFoundHeading: string;
+  readonly notFoundMessage: string;
+  readonly backHome: string;
 }
 
 export interface ServicePayload {
@@ -195,7 +224,7 @@ export interface WorkPayload {
   /** Long-form description, one entry per paragraph. */
   readonly description: readonly string[];
   readonly categories: readonly string[];
-  /** At least one image; the first is the card cover. */
+  /** Optional gallery; the first image, when present, is the card cover. */
   readonly images: readonly ImageRef[];
   readonly video?: VideoRef;
   /** Direct Qortal links to the live project (at least one). */
@@ -230,6 +259,7 @@ export interface ArticlePayload {
 }
 
 export interface EntityEnvelope<K extends EntityKind, P> {
+  readonly richText?: Readonly<Record<string, string>>;
   /** Payload format version. Unknown versions are rejected, never rendered. */
   readonly schema: number;
   /** The QDN identifier, duplicated inside the payload. Permanent identity. */
@@ -446,7 +476,28 @@ function checkSite(payload: Record<string, unknown>, path: string, errors: strin
     errors.push(`${path}.contact.columns: expected an array`);
   }
   if (!isRecord(payload.footer)) errors.push(`${path}.footer: expected an object`);
+  if (payload.ui !== undefined) {
+    if (!isRecord(payload.ui)) {
+      errors.push(`${path}.ui: expected an object`);
+    } else {
+      const linkKeys = new Set(['worksCta']);
+      for (const key of Object.keys(DEFAULT_UI_SHAPE)) {
+        if (linkKeys.has(key)) checkLink(payload.ui[key], `${path}.ui.${key}`, errors);
+        else if (!isNonEmptyString(payload.ui[key]))
+          errors.push(`${path}.ui.${key}: expected a non-empty string`);
+      }
+    }
+  }
 }
+
+const DEFAULT_UI_SHAPE: Readonly<Record<keyof SiteUiCopy, true>> = {
+  articlesLabel: true, homeLabel: true, portfolioLabel: true, portfolioIntro: true,
+  portfolioEmpty: true, viewAllProjects: true, viewProject: true, worksHeading: true,
+  worksDescription: true, worksNote: true, worksCta: true, postsHeading: true,
+  postsDescription: true, postsNote: true, readMore: true, galleryHeading: true,
+  aboutProjectHeading: true, openProjectHeading: true, backToProjects: true,
+  notFoundTitle: true, notFoundHeading: true, notFoundMessage: true, backHome: true,
+};
 
 function checkPayload(kind: EntityKind, payload: unknown, path: string, errors: string[]): void {
   if (!isRecord(payload)) {
@@ -484,8 +535,8 @@ function checkPayload(kind: EntityKind, payload: unknown, path: string, errors: 
       }
       if (typeof payload.featured !== 'boolean')
         errors.push(`${path}.featured: expected a boolean`);
-      if (!Array.isArray(payload.images) || payload.images.length === 0) {
-        errors.push(`${path}.images: expected at least one image`);
+      if (!Array.isArray(payload.images)) {
+        errors.push(`${path}.images: expected an image array`);
       } else {
         payload.images.forEach((image, index) =>
           checkImage(image, `${path}.images[${index}]`, errors),
@@ -574,6 +625,9 @@ export function validateEntity(value: unknown, path = 'entity'): ValidationResul
   }
 
   checkPayload(value.kind, value.payload, `${path}.payload`, errors);
+  if (value.richText !== undefined && (!isRecord(value.richText) || Object.values(value.richText).some((item) => typeof item !== 'string'))) {
+    errors.push(`${path}.richText: expected text formatting map`);
+  }
 
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, value: value as unknown as AnyEntity };

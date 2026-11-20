@@ -85,10 +85,10 @@ describe('validateEntity', () => {
     expect(result.errors.join(' ')).toContain('links');
   });
 
-  it('requires at least one image and a valid slug on a project', () => {
+  it('allows removing all project images and still requires a valid slug', () => {
     const noImages = { ...work(), payload: { ...work().payload, images: [] } };
     const badSlug = { ...work(), payload: { ...work().payload, slug: 'Not A Slug' } };
-    expect(validateEntity(noImages).ok).toBe(false);
+    expect(validateEntity(noImages).ok).toBe(true);
     expect(validateEntity(badSlug).ok).toBe(false);
   });
 

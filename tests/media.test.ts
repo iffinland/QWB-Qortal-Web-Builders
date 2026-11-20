@@ -16,7 +16,7 @@ describe('media reference resolution', () => {
       alt: 'cover',
     };
     const url = qdnMediaUrl(ref);
-    expect(url).toBe('/arbitrary/THUMBNAIL/Qortal%20Web%20Builders/qwb_work_asot-abc-1/cover.jpg');
+    expect(url).toBe('/arbitrary/THUMBNAIL/Qortal%20Web%20Builders/qwb_work_asot-abc-1');
     expect(isQdnAbsolutePath(url)).toBe(true);
   });
 
@@ -27,7 +27,7 @@ describe('media reference resolution', () => {
       filename: 'demo.mp4',
       title: 'Demo',
     });
-    expect(url).toBe('/arbitrary/VIDEO/Qortal%20Web%20Builders/qwb_work_demo-1/demo.mp4');
+    expect(url).toBe('/arbitrary/VIDEO/Qortal%20Web%20Builders/qwb_work_demo-1');
   });
 
   it('never returns a relative path for QDN media', () => {

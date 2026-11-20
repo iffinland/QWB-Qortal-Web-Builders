@@ -1,12 +1,13 @@
 import type { SiteEntity } from '../content/schema';
 import { escapeHtml, renderInline } from '../ui/html';
 import { renderImage } from '../ui/image';
+import { siteUi } from '../content/site-ui';
 
 /** Footer: icon mark, the one-page links, the credit row and the aquamarine border motif. */
 export function renderFooter(site: SiteEntity): string {
   const { brand, footer, nav } = site.payload;
 
-  const links = [...nav, { label: 'Articles', href: '#/posts' }]
+  const links = [...nav, { label: siteUi(site).articlesLabel, href: '#/posts' }]
     .map(
       (item) =>
         `              <li><a class="site-footer-link" href="${escapeHtml(item.href)}">${escapeHtml(item.label)}</a></li>`,

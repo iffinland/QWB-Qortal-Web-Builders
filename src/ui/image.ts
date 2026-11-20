@@ -2,6 +2,7 @@ import type { ImageRef } from '../content/schema';
 import { resolveImageUrl } from '../content/media';
 import { escapeHtml, classNames } from './html';
 import { placeholderCover } from './placeholder';
+import { qdnAttributes } from './qdn-media';
 
 export interface ImageOptions {
   readonly className?: string;
@@ -10,6 +11,7 @@ export interface ImageOptions {
 }
 
 export function renderImage(ref: ImageRef, options: ImageOptions = {}): string {
+  if (ref.source === 'placeholder' && ref.label === 'No image') return '';
   const src = resolveImageUrl(ref, placeholderCover);
   const classes = classNames(options.className);
   // No `loading="lazy"` here: the published site loaded every image eagerly, the
@@ -26,5 +28,5 @@ export function renderImage(ref: ImageRef, options: ImageOptions = {}): string {
     .filter((value) => value !== '')
     .join(' ');
 
-  return `<img ${attributes}>`;
+  return `<img ${attributes}${ref.source === 'qdn' ? ` ${qdnAttributes(ref.service, ref.name, ref.identifier)}` : ''}>`;
 }

@@ -23,6 +23,8 @@ import type {
   WorkEntity,
 } from './schema';
 import { SCHEMA_VERSION, identifierPrefixFor } from './schema';
+import { DEFAULT_SITE_UI } from './site-ui';
+import { OWNER_QMAIL } from './contact-link';
 import type { EntityKind } from './schema';
 
 import graduationIllustration from '../assets/illustrations/undraw_Graduation_re_gthn.png';
@@ -44,7 +46,7 @@ function seedId(kind: EntityKind, slug: string, random: string): string {
 const QDN_SELF = 'qortal://WEBSITE/Qortal%20Web%20Builders';
 const QDN_TEMPLATE_GALLERY = 'qortal://WEBSITE/HTML-web';
 const QDN_GROUP = 'qortal://use-group/action-join/groupid-745';
-const QDN_QMAIL = 'qortal://APP/Q-Mail/to/Qortal20Web%20Builders';
+const QDN_QMAIL = OWNER_QMAIL;
 
 function base<K extends EntityKind>(kind: K, id: string, order: number, title: string) {
   return {
@@ -142,6 +144,7 @@ const site: SiteEntity = {
       description:
         'Qortal Web Builders designs and builds custom websites and custom Qortal apps, shaped around each project’s visual and functional requirements. Request a free quote.',
     },
+    ui: DEFAULT_SITE_UI,
   },
 };
 

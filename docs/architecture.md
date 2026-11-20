@@ -1,168 +1,127 @@
 # QWB architecture
 
-Owner-approved architecture. This document records the decisions this repository
-implements; it does not replace the audit, which remains the evidence trail.
+Current implementation, updated 2026-11-20. The original architecture audit is
+historical context, not the current feature status:
+`/home/iffi/VsCodec-Projects/Qortal/qortal-dev-workspace/docs/qwb-qortal-web-builders/audits/2026-09-15-qwb-target-architecture-proposal.md`.
 
-Source audit:
-`/home/iffi/VsCodec-Projects/Qortal/qortal-dev-workspace/docs/qwb-qortal-web-builders/audits/2026-09-15-qwb-target-architecture-proposal.md`
+## Runtime and ownership
 
-## 1. Stack
+Vite, TypeScript and vanilla DOM modules produce a single-entry QDN `WEBSITE`.
+Bootstrap is CSS only; DOMPurify sanitizes rich text. Hash routing and relative
+build assets support Qortal render paths without server-side route fallback.
 
-Vite + TypeScript + vanilla DOM component modules, published as a single-entry
-`WEBSITE` QDN resource under the identity `Qortal Web Builders`.
+`config.ts` resolves the publishing name from `/render/WEBSITE/<name>/…` or
+`/render/APP/<name>/…`. `qortal/owner.ts` compares the connected account with the
+publishing name's account-name list/registered owner. Missing context or failed
+checks deny owner tools. The viewer's name never determines the contact recipient.
+`content/contact-link.ts` resolves Q-Mail destinations to the publishing name,
+including historical hard-coded recipients in saved content.
 
-Rejected: React + MUI (would import a design system that fights the preserved
-visual identity and adds ~45–55 KB gzip before app code); `qapp-core` runtime (a
-React + MUI library); jQuery and the Bootstrap JS bundle (the published site's
-jQuery/plugin layer is removed and its behaviour reimplemented natively).
+## Modules and lifecycle
 
-Bootstrap 5.2.2 is kept as CSS only — it is the grid substrate the theme was
-written against, and keeping it is what makes the visual descent checkable.
+- `main.ts`: public reads, owner check, route rendering and teardown of owner,
+  navbar and media handlers before replacing a view.
+- `content/`: validated schema-v1 entities, seed fallback, QDN source, revisions,
+  save verification, raw media URLs and runtime contact-link resolution.
+- `qortal/adapter.ts`: public HTTP reads and bridge-based JSON/file publishes.
+- `views/`: pure renderers receiving a content bundle. Text is escaped; formatted
+  content passes through the DOMPurify allowlist in `owner/rich-text.ts`.
+- `owner/console.ts`: contextual edit/add/hide/delete handlers and modal host.
+  Its legacy console renderer is retained but is not mounted in the app.
+- `owner/forms.ts` and `owner/controls.ts`: validated form conversion and separate
+  labeled rows for links, navigation, contacts, section visibility and lists.
+- `owner/file-snapshot.ts`: immediate FileReader copy into an owned in-memory File.
+- `ui/qdn-media.ts`: host resource URL resolution, bounded error/build retries,
+  dynamically added modal previews, and cancellation on route changes.
 
-| Concern        | Decision                                                                                                                     |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Routing        | Hash-based. Core's index-fallback routing applies only to `APP` resources, so `WEBSITE` must keep dynamic views in the hash. |
-| Build base     | `base: './'` — every emitted asset URL is relative, so the archive works from any QDN resource path.                         |
-| CSS            | `cssCodeSplit: false` — one stylesheet; the app is small and a single request is better than waterfall.                      |
-| Asset inlining | `assetsInlineLimit: 4096` — brand/structural assets stay in the archive, content images are QDN-managed.                     |
-| Tests          | `vitest` + `jsdom`.                                                                                                          |
+There is no visible central admin bar. Owners receive card-level edit/hide/delete
+controls and section-level add/visibility controls. Hidden items have an owner-only
+recovery list. Hidden sections/footer remain visible with an owner marker so they
+can be restored; visitors see only the public projection. The modal keeps its
+header and save controls fixed while its fields scroll.
 
-## 2. Module boundaries
+## Routes
 
-```text
-index.html ──> src/main.ts
-                 ├── src/content/*      content: schema, seed, repository, media
-                 ├── src/router.ts      hash → Route
-                 ├── src/views/*        nav + view + footer → HTML string (+ mount hook)
-                 ├── src/ui/*           escape/render helpers, images, navbar, skip link, scroll-to-top
-                 └── src/styles/*       tokens → theme → components
-```
+| Hash | View |
+| --- | --- |
+| `#/` or empty | home |
+| `#section_1` … `#section_5` | legacy home anchors |
+| `#/works` | portfolio index |
+| `#/work/<slug>` | project, gallery and video |
+| `#/posts` | article index |
+| `#/post/<slug>` | article |
+| other | not found |
 
-Rules that keep the layers separable:
+`#main-content` is a reserved focus target, not a route. Same-view hash changes
+scroll rather than replacing the view.
 
-- **Views are pure renderers.** A view exposes `{ title, description, html, mount? }`.
-  It never touches `document.title`, never wires global listeners, and never
-  fetches content. `main.ts` owns the shell and the lifecycle.
-- **`mount(root, context)` is the only place behaviour attaches.** Phase 2 owner
-  controls and inline editors attach on the same containers through these hooks,
-  which is why no structural rewrite is needed later.
-- **Content access is behind `ContentSource`.** Views never import `seed.ts`;
-  they receive a validated `ContentBundle`. Phase 3 replaces
-  `createSeedSource()` with a QDN-backed source and nothing else changes.
-- **Escaping happens in `src/ui/html.ts`.** Views build strings; every
-  content-derived value passes through `escapeHtml`/`renderInline`. Owner-authored
-  text is never injected as HTML. Phase 3 layered sanitised rich text goes on top
-  of this renderer, not instead of it.
-- **Links are scheme-checked.** Only `#…` (in-app route) and `qortal://…` become
-  anchors. External `https://` links are deliberately not reproduced: Core's
-  `q-apps.js` intercepts and blocks them inside a Qortal host, so they were dead
-  in the published site.
+## Content and persistence
 
-## 3. Routes
+All entities, including articles, use QDN `JSON` under the publishing name.
 
-| Hash                        | View                                                      |
-| --------------------------- | --------------------------------------------------------- |
-| `#/` or empty               | home                                                      |
-| `#section_1` … `#section_5` | home, scrolled to that section (legacy published anchors) |
-| `#/works`                   | completed works                                           |
-| `#/posts`                   | article index                                             |
-| `#/post/<slug>`             | article detail                                            |
-| anything else               | not-found view                                            |
+| Kind | Identifier |
+| --- | --- |
+| site singleton | `qwb_site_v1` |
+| service | `qwb_svc_*` |
+| step | `qwb_step_*` |
+| work | `qwb_work_*` |
+| price | `qwb_price_*` |
+| article | `qwb_post_*` |
 
-`#main-content` is **reserved** as a focus target, not a route: it is the skip
-link's target, and letting it reach the router would replace the page. See
-`src/ui/skip-link.ts` and `RESERVED_FOCUS_HASHES`.
+The envelope includes schema, identifier, kind, revision, state, hidden flag,
+timestamps, sparse order, title, payload and optional `richText` field map.
+Identifiers are permanent, lowercase `[a-z0-9_-]`, at most 60 characters. Ordering
+is order, creation timestamp, then identifier. Optional site UI copy has defaults
+for older schema-v1 resources. Rich HTML supplements plain-text payloads and is
+sanitized at render time; scripts, event handlers and unsafe link schemes are
+removed. Structured CTA/navigation links accept hashes and `qortal://`; rich-text
+links additionally accept HTTP(S), whose navigation depends on the Qortal host.
 
-`routeKey()` gives a route its stable identity excluding the in-page anchor, so a
-hash change within the same view scrolls instead of re-rendering.
+`ContentLoadResult` separates public `bundle` from owner `raw` and records
+`publishedIds`. The QDN source overlays published resources on built-in seed
+entities, retaining untouched seed content while honoring hidden/deleted records.
+An invalid resource is skipped with diagnostics. Node/search/bundle problems
+produce a diagnosed fallback rather than a blank page.
 
-## 4. Content model
+A seed entity's first save is a create (`expectedRev: null`, revision 1), not an
+update of a nonexistent remote resource. Subsequent saves compare remote revisions.
+`saveEntity` validates and checks the remote revision before publishing JSON and
+reports success only after read-back matches. Conflicts and uncertain read-back
+are reported explicitly. Failed saves keep the editor open for correction/retry.
 
-One entity per editable thing, one QDN resource per entity, published under the
-app's own name. The common envelope:
+Hide toggles the hidden flag. Delete republishes a tombstone with `state: deleted`
+and a deletion timestamp after confirmation; it does not erase QDN bytes. Section
+visibility and footer visibility are reversible site settings, not deletion of
+the site's schema-defined section structure. Removing media removes its reference
+from content; previously published media bytes remain on QDN.
 
-```jsonc
-{
-  "schema": 1, // payload format version; unknown versions are rejected, never rendered
-  "id": "qwb_work_asot-...", // = the QDN identifier, duplicated inside the payload
-  "kind": "work",
-  "rev": 3, // monotonic; the write-verification handle
-  "state": "active", // "active" | "deleted"
-  "createdAt": 0,
-  "updatedAt": 0,
-  "deletedAt": null,
-  "order": 20, // sparse (10, 20, 30 …): a reorder republishes one entity
-  "title": "…",
-  "payload": {/* kind-specific */},
-}
-```
+## Media pipeline
 
-Kinds and identifier prefixes:
+1. Copy selected files immediately, preserving bytes independently of temporary
+   document-provider permissions. Limits: images 10 MiB/file, videos 200 MiB.
+2. Validate content, then publish media through `PUBLISH_QDN_RESOURCE` as raw
+   `IMAGE` or `VIDEO`, using fresh bounded identifiers for replacement resources.
+3. Store name, service/identifier, filename metadata and accessible text, then
+   publish and verify the entity JSON. Empty galleries and video removal are valid.
+4. Resolve display URLs through `GET_QDN_RESOURCE_URL`. Single-file resource URLs
+   do not append the device filename. An absolute `/arbitrary/<service>/<name>/<id>`
+   fallback works when the host URL resolver is unavailable. Delayed resources
+   receive bounded retries with `GET_QDN_RESOURCE_STATUS` build requests.
 
-| Kind        | Service               | Identifier                                         | Singleton |
-| ----------- | --------------------- | -------------------------------------------------- | --------- |
-| `site`      | `JSON`                | `qwb_site_v1` (fixed)                              | yes       |
-| `highlight` | `JSON`                | `qwb_hl_*`                                         | no        |
-| `service`   | `JSON`                | `qwb_svc_*`                                        | no        |
-| `step`      | `JSON`                | `qwb_step_*`                                       | no        |
-| `work`      | `JSON`                | `qwb_work_*`                                       | no        |
-| `price`     | `JSON`                | `qwb_price_*`                                      | no        |
-| `article`   | `DOCUMENT`            | `qwb_post_*`                                       | no        |
-| media       | `THUMBNAIL` / `IMAGE` | owning entity's identifier (`<id>_<n>` for extras) | —         |
+Existing and selected media have previews, individual removal, clear-all and
+restore-original controls. Selecting a gallery replaces it. Successfully uploaded
+references are retained when JSON publishing fails so the owner can retry.
 
-**Identifier policy.** Lowercase `[a-z0-9_-]`, max 60 characters, kind-prefixed,
-timestamp-suffixed, and **never reused** — an identifier is the entity's permanent
-identity, Core has no rename, and re-publishing under a new identifier orphans the
-old bytes. Enforced by `isValidIdentifier()` and asserted in `tests/schema.test.ts`.
+## Validation and boundaries
 
-**Deletion is logical.** There is no app-accessible QDN delete, so a delete is a
-republished `state: 'deleted'` with `deletedAt` set. `activeEntities()` filters
-tombstones on every read path (`repository.ts`), which is why the filter exists in
-Phase 1 even though nothing writes yet.
+Vitest/jsdom cover schema, data loading, forms, ownership, revisions, file copying,
+rich-text sanitization, media URLs and actions. `e2e/editor.mjs` runs real Chromium
+with image and generated MP4 fixtures, a simulated Qortal bridge, and an HTTP
+resource server. It verifies publishing bytes/order, public media load/playback,
+reload, delayed resource resolution, removal, rich text and failed-save retry.
+The simulated bridge does not replace a real Qortal runtime check.
 
-**Ordering** is deterministic: sparse `order`, then `createdAt`, then `id`.
-
-**Media references** are explicit (`bundled` / `qdn` / `placeholder`) and resolved
-to a URL only at render time. QDN media is requested through an **absolute**
-`/arbitrary/<service>/<name>/<identifier>` path — a relative path would resolve
-against the frame's `<base href>` and return the app shell HTML instead of the
-image. Publishing order is always media → entity.
-
-**Seed content** (`src/content/seed.ts`) is typed mock content: the published
-structure with the repositioned message, the owner's real published portfolio list
-and price points, and `placeholder` covers. There is no import or migration of the
-old markup, and no migration script exists by design.
-
-## 5. Style layers
-
-```text
-tokens.css      design tokens, verbatim from the golden master :root
-                (+ --secondary-text-color: a legible aquamarine for text)
-theme.css       the published component vocabulary, identical class names
-components.css  pieces the published site did with inline <style> or not at all
-fonts.css       self-hosted @font-face (latin subset, woff2 only)
-```
-
-`theme.css` keeps the golden master's class names so "did the design survive?" is
-answerable by inspection and by screenshot diff. Removed from the published CSS:
-dead template components (timeline, FAQ, newsletter, subscribe form, pagination,
-dropdowns, social icons, unused topic-listing variants) and the unparsable SCSS
-tail whose global `p{}` rule capitalised and shrank every paragraph.
-
-## 6. Phase seams
-
-| Phase                                  | What changes                                                                                                                              | What must not change                                                          |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| 2 — owner recognition + owner UI shell | new `src/qortal/` modules (context, bridge, identity); owner controls added inside existing `mount()` hooks; modal/toast/confirm plumbing | the `View` interface, the content schema, the rendered public HTML            |
-| 3 — QDN-backed CRUD + media            | `createSeedSource()` is replaced by a QDN-backed `ContentSource`; writes with `rev` verification; media publish pipeline                  | the view modules — they only ever see `ContentLoadResult`                     |
-| 4 — owner-runtime validation           | owner publishes real content in a real host; contrast/accessibility pass; visual regression against the Phase 1 baseline                  | the Phase 1 visual baseline (regressions are recorded, not silently absorbed) |
-
-Deferred by default (not in Phases 0–4): a derived index, rich text beyond
-sanitised basics, comments, visitor accounts, i18n, offline caching, and any admin
-dashboard.
-
-## 7. Deliberate non-goals in this repository
-
-Owner recognition and owner controls; add/edit/delete flows; QDN reads or writes;
-migration/import tooling; deployment or publication; skills promotion. No QDN write
-is authorized by the presence of this code.
+The owner confirmed runtime tests passed on 2026-11-20 after the resource-URL fix.
+Formal visual-baseline regression remains pending. Comments, visitor accounts,
+full migration tooling, automated QDN deployment and a central admin dashboard
+are outside the current implementation.

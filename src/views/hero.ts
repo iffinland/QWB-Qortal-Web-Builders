@@ -1,5 +1,6 @@
 import type { SiteEntity } from '../content/schema';
 import { escapeHtml } from '../ui/html';
+import { richContent } from '../owner/rich-text';
 import { renderImage } from '../ui/image';
 
 /**
@@ -19,7 +20,7 @@ export function renderHero(site: SiteEntity): string {
               </div>
               <div class="col-lg-7 col-12 text-center text-lg-start">
                 <h1 id="hero-heading" class="text-white">${escapeHtml(hero.heading)}</h1>
-                <p class="hero-subtitle mb-4">${escapeHtml(hero.subtitle)}</p>
+                <div class="hero-subtitle mb-4 rich-content">${richContent(site, 'heroSubtitle', hero.subtitle)}</div>
                 <div class="hero-actions">
                   <a class="btn custom-btn" href="${escapeHtml(hero.primaryCta.href)}">${escapeHtml(hero.primaryCta.label)}</a>
                   <a class="btn custom-btn custom-btn-bg-white" href="${escapeHtml(hero.secondaryCta.href)}">${escapeHtml(hero.secondaryCta.label)}</a>

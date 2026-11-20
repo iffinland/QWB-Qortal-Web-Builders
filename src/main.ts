@@ -32,13 +32,14 @@ import {
   fetchNameOwner,
 } from './qortal/adapter';
 import type { OwnerState } from './qortal/owner';
-import { VISITOR_REASON_TEXT, isOwner, resolveOwner } from './qortal/owner';
-import { escapeHtml } from './ui/html';
+import { isOwner, resolveOwner } from './qortal/owner';
 import { parseRoute, routeKey } from './router';
 import type { Route } from './router';
-import { mountOwnerConsole, ownerSectionButtons, renderOwnerConsole } from './owner/console';
+import { mountOwnerConsole, renderOwnerEditorHost } from './owner/console';
 import { renderNavbar } from './views/navbar';
 import { renderFooter } from './views/footer';
+import { normalizeContactLink, resolveOwnerContactLinks } from './content/contact-link';
+import { mountQdnMedia } from './ui/qdn-media';
 import { createHomeView } from './views/home';
 import { createWorksView } from './views/works-page';
 import { createWorkView } from './views/work-page';
@@ -79,30 +80,89 @@ function resolveView(route: Route, content: ContentBundle): View {
  * Puts an owner "Edit" button at the top of each section. The button scrolls to the
  * matching collection in the owner panel, or opens the site-text editor directly.
  */
-function addOwnerSectionButtons(app: HTMLElement): void {
-  const buttons = ownerSectionButtons();
-  for (const [sectionId, spec] of Object.entries(buttons)) {
-    const section = app.querySelector<HTMLElement>(`#${sectionId}`);
-    if (section === null || section.querySelector('.owner-section-edit') !== null) continue;
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'btn custom-btn owner-section-edit';
-    button.textContent = spec.label;
-    button.addEventListener('click', () => {
-      const panel = app.querySelector<HTMLElement>('#owner-console');
-      if (panel === null) return;
-      if (spec.target === 'site') {
-        panel
-          .querySelector<HTMLButtonElement>('[data-action="edit"][data-collection="site"]')
-          ?.click();
-      } else {
-        panel.querySelector<HTMLElement>(`#owner-collection-${spec.target}`)?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start',
-        });
-      }
-    });
-    section.prepend(button);
+function ownerButton(action: 'edit' | 'new' | 'toggle-hidden' | 'delete' | 'toggle-section' | 'toggle-footer', collection: string, id?: string): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = action === 'edit' ? 'owner-inline-edit' : 'owner-inline-add';
+  button.dataset.action = action;
+  button.dataset.collection = collection;
+  if (id !== undefined) button.dataset.id = id;
+  button.textContent = ({ edit: 'Edit', new: '+ Add', 'toggle-hidden': 'Hide', delete: 'Delete', 'toggle-section': 'Hide section', 'toggle-footer': 'Hide footer' })[action];
+  return button;
+}
+
+/** Adds contextual controls beside the content, matching the reference dapp. */
+function addInlineOwnerControls(app: HTMLElement, raw: ContentBundle): void {
+  for (const target of app.querySelectorAll<HTMLElement>('[data-owner-collection][data-owner-id]')) {
+    const collection = target.dataset.ownerCollection;
+    const id = target.dataset.ownerId;
+    if (collection && id && target.querySelector(':scope > .owner-inline-edit') === null) {
+      target.classList.add('owner-editable');
+      target.append(ownerButton('edit', collection, id));
+      const actions = document.createElement('div');
+      actions.className = 'owner-card-actions';
+      actions.append(ownerButton('toggle-hidden', collection, id), ownerButton('delete', collection, id));
+      target.append(actions);
+    }
+  }
+
+  for (const section of raw.site.payload.sections) {
+    const target = app.querySelector<HTMLElement>(`#${section.id} > .container`);
+    if (!target) continue;
+    const button = ownerButton('toggle-section', 'site', raw.site.id);
+    button.dataset.section = section.id;
+    button.textContent = section.visible ? 'Hide section' : 'Show section';
+    target.prepend(button);
+    if (!section.visible) target.parentElement?.classList.add('owner-hidden-content');
+  }
+
+  const collections = ['services', 'steps', 'works', 'prices', 'articles'] as const;
+  const footer = app.querySelector<HTMLElement>('.site-footer');
+  if (footer) {
+    const toggle = ownerButton('toggle-footer', 'site', raw.site.id);
+    toggle.textContent = raw.site.payload.footerVisible === false ? 'Show footer' : 'Hide footer';
+    footer.querySelector('.container')?.prepend(toggle);
+    if (raw.site.payload.footerVisible === false) footer.classList.add('owner-hidden-content');
+  }
+  const recovery = document.createElement('details');
+  recovery.className = 'owner-recovery container';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Hidden content';
+  recovery.append(summary);
+  for (const collection of collections) {
+    for (const entity of raw[collection].filter((item) => item.hidden && item.state === 'active')) {
+      const row = document.createElement('div');
+      row.className = 'owner-card-actions';
+      const label = document.createElement('span');
+      label.textContent = entity.title;
+      const show = ownerButton('toggle-hidden', collection, entity.id);
+      show.textContent = 'Show';
+      row.append(label, show, ownerButton('edit', collection, entity.id), ownerButton('delete', collection, entity.id));
+      recovery.append(row);
+    }
+  }
+  if (recovery.children.length > 1) app.querySelector('main')?.append(recovery);
+
+  for (const selector of ['#hero', '#contact', '.site-footer']) {
+    const target = app.querySelector<HTMLElement>(selector);
+    if (target !== null && target.querySelector(':scope > .owner-inline-edit') === null) {
+      target.classList.add('owner-editable');
+      target.append(ownerButton('edit', 'site', raw.site.id));
+    }
+  }
+
+  const addTargets: Readonly<Record<string, string>> = {
+    services: '#services .section-title',
+    works: '#portfolio .section-title, .works-section .container',
+    steps: '#how-it-works .section-title',
+    prices: '#pricing .section-title',
+    articles: '.posts-section .container',
+  };
+  for (const [collection, selector] of Object.entries(addTargets)) {
+    const target = app.querySelector<HTMLElement>(selector);
+    if (target !== null && target.querySelector(`.owner-inline-add[data-collection="${collection}"]`) === null) {
+      target.append(ownerButton('new', collection));
+    }
   }
 }
 
@@ -139,6 +199,19 @@ async function boot(): Promise<void> {
 
   const bridge = detectBridge(window);
   let loaded: ContentLoadResult = await source.load();
+  const initialEntities = [
+    loaded.raw.site,
+    ...loaded.raw.services,
+    ...loaded.raw.steps,
+    ...loaded.raw.works,
+    ...loaded.raw.prices,
+    ...loaded.raw.articles,
+  ];
+  const unpublishedIds = new Set(
+    initialEntities
+      .map((entity) => entity.id)
+      .filter((id) => !loaded.publishedIds.includes(id)),
+  );
   const owner: OwnerState = await resolveOwner({
     ownerName: publishingName,
     bridge,
@@ -147,10 +220,20 @@ async function boot(): Promise<void> {
 
   let currentRoute = parseRoute(window.location.hash);
   let teardownNavbar: (() => void) | null = null;
+  let teardownOwner: (() => void) | null = null;
+  let teardownMedia: (() => void) | null = null;
   let ownerNotice = '';
 
   const render = (route: Route): void => {
-    const content = loaded.bundle;
+    teardownMedia?.();
+    teardownOwner?.();
+    teardownOwner = null;
+    const content = resolveOwnerContactLinks(isOwner(owner) ? {
+      ...loaded.bundle,
+      site: { ...loaded.bundle.site, payload: { ...loaded.bundle.site.payload,
+        sections: loaded.raw.site.payload.sections.map((section) => ({ ...section, visible: true })),
+      } },
+    } : loaded.bundle, publishingName);
     const view = resolveView(route, content);
     const activeHref =
       route.kind === 'home' && route.anchor !== undefined ? `#${route.anchor}` : '';
@@ -159,30 +242,29 @@ async function boot(): Promise<void> {
       loaded.status === 'ready'
         ? ''
         : `<p class="content-notice" role="status">Some content could not be loaded from Qortal, so the built-in version is shown in places.</p>`;
-    const ownerPanel = isOwner(owner) ? renderOwnerConsole(loaded.raw, owner, ownerNotice) : '';
-
-    // Owner tools sit right under the navbar. While owner access is being verified,
-    // a one-line status states why owner tools are off (temporary diagnostic).
-    const ownerStatus = !isOwner(owner)
-      ? `<p class="owner-status" role="status">Owner tools are off: ${escapeHtml(VISITOR_REASON_TEXT[owner.reason])}</p>`
-      : '';
+    const ownerEditor = isOwner(owner) ? renderOwnerEditorHost(ownerNotice) : '';
 
     app.innerHTML = `${renderNavbar(content.site, activeHref)}
-${ownerPanel}
-${ownerStatus}
+${ownerEditor}
 ${notice}
 ${view.html}
-${renderFooter(content.site)}`;
+${isOwner(owner) || content.site.payload.footerVisible !== false ? renderFooter(content.site) : ''}`;
 
     applyMeta(view);
+    // Also repair links from older QDN resources, without republishing owner data.
+    for (const link of app.querySelectorAll<HTMLAnchorElement>('a[href]')) {
+      const href = link.getAttribute('href') ?? '';
+      const corrected = normalizeContactLink(href, publishingName);
+      if (corrected !== href) link.setAttribute('href', corrected);
+    }
     view.mount?.(app, { content });
+    teardownMedia = mountQdnMedia(app, bridge);
 
-    if (isOwner(owner)) addOwnerSectionButtons(app);
+    if (isOwner(owner)) addInlineOwnerControls(app, loaded.raw);
 
     if (isOwner(owner)) {
-      const panel = app.querySelector<HTMLElement>('#owner-console');
-      if (panel !== null) {
-        mountOwnerConsole(panel, {
+      if (app.querySelector('#owner-editor') !== null) {
+        teardownOwner = mountOwnerConsole(app, {
           raw: loaded.raw,
           deps: {
             owner,
@@ -197,6 +279,8 @@ ${renderFooter(content.site)}`;
             ownerNotice = message;
             render(currentRoute);
           },
+          unpublishedIds: [...unpublishedIds],
+          onPublished: (id) => unpublishedIds.delete(id),
         });
       }
     }

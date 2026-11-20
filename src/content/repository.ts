@@ -27,6 +27,8 @@ export interface ContentLoadResult {
   readonly raw: ContentBundle;
   /** Human-readable diagnostics for the console and the content notice. */
   readonly diagnostics: readonly string[];
+  /** Entity identifiers confirmed to exist remotely (empty for pure seed content). */
+  readonly publishedIds: readonly string[];
 }
 
 export interface ContentSource {
@@ -92,6 +94,7 @@ export function createSeedSource(): ContentSource {
           bundle: publicBundle(seedBundle),
           raw: sortBundle(seedBundle),
           diagnostics: validation.errors,
+          publishedIds: [],
         });
       }
       return Promise.resolve({
@@ -100,6 +103,7 @@ export function createSeedSource(): ContentSource {
         bundle: publicBundle(validation.value),
         raw: sortBundle(validation.value),
         diagnostics: [],
+        publishedIds: [],
       });
     },
   };

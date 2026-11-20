@@ -10,7 +10,7 @@
  */
 
 import type { ContentBundle, AnyEntity, CollectionKey, EntityKind } from '../content/schema';
-import { COLLECTION_KINDS } from '../content/schema';
+import { COLLECTION_KINDS, validateEntity } from '../content/schema';
 import { activeEntities, sortForDisplay } from '../content/repository';
 import { newIdentifier, setHidden, swapOrder, tombstone } from '../content/edit';
 import type { SaveDeps, SaveOutcome } from '../content/save';
@@ -19,6 +19,13 @@ import type { OwnerState } from '../qortal/owner';
 import { escapeHtml } from '../ui/html';
 import { FORM_FIELDS, fromValues, toValues } from './forms';
 import type { FieldSpec, FormValues } from './forms';
+import { structuredControl, structuredRow, syncStructured } from './controls';
+import { OWNER_QMAIL, normalizeContactLink } from '../content/contact-link';
+import { snapshotFile } from './file-snapshot';
+import { richControl, syncRich, sanitizeRichText } from './rich-text';
+import { qdnFileUrl } from '../content/media';
+import { renderArticleBody } from '../views/article-body';
+import { qdnAttributes } from '../ui/qdn-media';
 
 type OwnerDeps = Omit<SaveDeps, 'owner'> & {
   readonly owner: Extract<OwnerState, { status: 'owner' }>;
@@ -31,6 +38,9 @@ export interface OwnerConsoleOptions {
   readonly onRawChange: (raw: ContentBundle, notice: string) => void;
   readonly now?: () => number;
   readonly random?: () => string;
+  /** Seed entities have never existed remotely; their first edit is a create. */
+  readonly unpublishedIds?: readonly string[];
+  readonly onPublished?: (id: string) => void;
 }
 
 const COLLECTION_LABELS: Readonly<Record<CollectionKey, string>> = {
@@ -72,27 +82,27 @@ const TEMPLATE_PAYLOADS: Readonly<Record<EntityKind, Record<string, unknown>>> =
   },
   step: {
     description: '',
-    illustration: { source: 'placeholder', label: 'New step', alt: '' },
+    illustration: { source: 'placeholder', label: 'New step', alt: 'Illustration for this step' },
   },
   work: {
     slug: '',
     summary: '',
     description: [''],
     categories: [''],
-    images: [{ source: 'placeholder', label: 'New project', alt: '' }],
+    images: [{ source: 'placeholder', label: 'New project', alt: 'Project image' }],
     links: [{ label: 'Open the live website', href: 'qortal://WEBSITE/' }],
     featured: false,
   },
   price: {
     intro: '',
     lines: [{ icon: '✅', text: '' }],
-    cta: { label: 'Request a free quote', href: 'qortal://APP/Q-Mail/to/Qortal20Web%20Builders' },
+    cta: { label: 'Request a free quote', href: OWNER_QMAIL },
     note: '',
   },
   article: {
     slug: '',
     summary: '',
-    heroImage: { source: 'placeholder', label: 'New article', alt: '' },
+    heroImage: { source: 'placeholder', label: 'New article', alt: 'Article cover image' },
     blocks: [{ type: 'paragraph', text: '' }],
     tags: [],
   },
@@ -145,13 +155,32 @@ ${sections}
               <p class="owner-meta" data-editor-target></p>
               <div class="owner-fields" data-editor-fields></div>
               <div class="owner-actions">
-                <button class="btn custom-btn" type="submit">Save and verify</button>
+                <button class="btn custom-btn" type="submit">Save changes</button>
                 <button class="btn custom-border-btn" type="button" data-action="cancel">Cancel</button>
               </div>
               <p class="owner-result" role="status" aria-live="polite"></p>
             </form>
           </div>
         </section>`;
+}
+
+/** A small mobile-first editor host. Inline buttons elsewhere in the page open it. */
+export function renderOwnerEditorHost(notice = ''): string {
+  return `        <div class="owner-editor-backdrop" id="owner-editor-host" hidden>
+          <form class="owner-editor" id="owner-editor" aria-labelledby="owner-editor-heading">
+            <div class="owner-editor-head">
+              <h2 id="owner-editor-heading" class="section-heading">Edit content</h2>
+              <button class="owner-editor-close" type="button" data-action="cancel" aria-label="Close editor">×</button>
+            </div>
+            <p class="owner-meta" data-editor-target></p>
+            <div class="owner-fields" data-editor-fields></div>
+            <div class="owner-actions">
+              <button class="btn custom-btn" type="submit">Save changes</button>
+              <button class="btn custom-border-btn" type="button" data-action="cancel">Cancel</button>
+            </div>
+            <p class="owner-result" role="status" aria-live="polite">${escapeHtml(notice)}</p>
+          </form>
+        </div>`;
 }
 
 function renderCollection(key: CollectionKey, entities: readonly AnyEntity[]): string {
@@ -192,6 +221,11 @@ function renderItem(key: CollectionKey, entity: AnyEntity, index: number, count:
 }
 
 function renderField(spec: FieldSpec, value: string | boolean): string {
+  if (['description', 'summary', 'body', 'intro', 'note', 'heroSubtitle', 'contactIntro'].includes(spec.name)) {
+    return richControl(spec.name, spec.label, typeof value === 'string' ? value : '');
+  }
+  const structured = structuredControl(spec.name, spec.label, typeof value === 'string' ? value : '');
+  if (structured !== null) return structured;
   const id = `owner-field-${spec.name}`;
   const help = spec.help ? `<small class="owner-meta">${escapeHtml(spec.help)}</small>` : '';
   if (spec.type === 'checkbox') {
@@ -203,6 +237,19 @@ function renderField(spec: FieldSpec, value: string | boolean): string {
     spec.type === 'textarea'
       ? `<textarea id="${id}" name="${spec.name}" rows="${spec.rows ?? 3}">${escapeHtml(text)}</textarea>`
       : `<input type="text" id="${id}" name="${spec.name}" value="${escapeHtml(text)}">`;
+  if (spec.media !== undefined) {
+    const accept = spec.media === 'video' ? 'video/*' : spec.media === 'file' ? '*/*' : 'image/*';
+    const multiple = spec.media === 'images' ? ' multiple' : '';
+    return `<div class="owner-field owner-media-field">${label}
+      <input class="owner-file-input" type="file" data-media-field="${spec.name}" data-media-kind="${spec.media}" accept="${accept}"${multiple}>
+      <small class="owner-meta">Choose ${spec.media === 'video' ? 'a video' : spec.media === 'images' ? 'one or more images' : 'an image'} from this device. Leave empty to keep the current media.</small>
+      <div class="owner-media-preview" data-media-preview="${spec.name}">${mediaPreview(text, spec.name, spec.media === 'video')}</div>
+      <button type="button" class="owner-row-remove" data-media-remove="${spec.name}">Remove media</button>
+      <button type="button" class="owner-row-add" data-media-undo="${spec.name}">Keep original media</button>
+      <div hidden>${control}</div>
+      <small class="owner-meta">${text ? 'Current media is kept until you choose a replacement.' : 'No media selected yet.'}</small>
+    </div>`;
+  }
   return `<div class="owner-field">${label}${control}${help}</div>`;
 }
 
@@ -219,7 +266,8 @@ function findEntity(raw: ContentBundle, key: string, id: string): AnyEntity | un
 function replaceEntity(raw: ContentBundle, key: string, next: AnyEntity): ContentBundle {
   if (key === 'site') return { ...raw, site: next as ContentBundle['site'] };
   const list = raw[key as CollectionKey] as readonly AnyEntity[];
-  return { ...raw, [key]: list.map((entity) => (entity.id === next.id ? next : entity)) };
+  return { ...raw, [key]: list.some((entity) => entity.id === next.id)
+    ? list.map((entity) => (entity.id === next.id ? next : entity)) : [...list, next] };
 }
 
 function describeOutcome(outcome: SaveOutcome): string {
@@ -245,6 +293,7 @@ export function mountOwnerConsole(root: HTMLElement, options: OwnerConsoleOption
   const now = options.now ?? Date.now;
   const random = options.random ?? defaultRandom;
   const editor = root.querySelector<HTMLFormElement>('#owner-editor');
+  const backdrop = root.querySelector<HTMLElement>('#owner-editor-host');
   const fieldsBox = root.querySelector<HTMLElement>('[data-editor-fields]');
   const target = root.querySelector<HTMLElement>('[data-editor-target]');
   const result = root.querySelector<HTMLElement>('.owner-result');
@@ -253,6 +302,15 @@ export function mountOwnerConsole(root: HTMLElement, options: OwnerConsoleOption
 
   let raw = options.raw;
   let editing: { key: string; base: AnyEntity; expectedRev: number | null } | null = null;
+  const selectedFiles = new Map<string, Promise<File[]>>();
+  let saving = false;
+  let richSelection: Range | null = null;
+  const actionNotice = document.createElement('p');
+  actionNotice.className = 'owner-action-notice';
+  actionNotice.setAttribute('role', 'status');
+  root.append(actionNotice);
+  const previewUrls: string[] = [];
+  const clearPreviews = (): void => { previewUrls.splice(0).forEach((url) => URL.revokeObjectURL(url)); };
 
   const openEditor = (
     key: string,
@@ -261,25 +319,79 @@ export function mountOwnerConsole(root: HTMLElement, options: OwnerConsoleOption
     expectedRev: number | null,
   ): void => {
     editing = { key, base, expectedRev };
+    clearPreviews();
+    selectedFiles.clear();
     const values = toValues(base);
+    for (const [field, value] of Object.entries(values)) {
+      if (typeof value === 'string' && value.includes(OWNER_QMAIL)) {
+        values[field] = value.replaceAll(OWNER_QMAIL, normalizeContactLink(OWNER_QMAIL, options.deps.name));
+      }
+    }
     const fields = FORM_FIELDS[base.kind]
       .map((spec) => renderField(spec, values[spec.name] ?? ''))
       .join('\n');
     fieldsBox.innerHTML = fields;
+    for (const field of fieldsBox.querySelectorAll<HTMLElement>('[data-rich-field]')) {
+      const storedHtml = base.richText?.[field.dataset.richField ?? ''];
+      const richEditor = field.querySelector<HTMLElement>('[contenteditable]');
+      if (storedHtml !== undefined && richEditor) richEditor.innerHTML = sanitizeRichText(storedHtml);
+      else if (base.kind === 'article' && field.dataset.richField === 'body' && richEditor) {
+        richEditor.innerHTML = sanitizeRichText(renderArticleBody(base.payload.blocks));
+      }
+    }
+    const heading = root.querySelector('#owner-editor-heading');
+    if (heading) heading.textContent = `${base.rev === 0 && base.title === '' ? 'Add' : 'Edit'} ${KIND_LABELS[base.kind].toLowerCase()}`;
+    if (base.kind === 'site') {
+      const groups: [string, string[]][] = [
+        ['Brand and images', ['title', 'tagline', 'since', 'logo', 'mark']],
+        ['Navigation and home sections', ['nav', 'sections']],
+        ['Welcome section', ['heroHeading', 'heroSubtitle', 'heroPrimary', 'heroSecondary']],
+        ['Contact', ['contactHeading', 'contactIntro', 'contactRows']],
+        ['Footer', ['footerCredit', 'creditNote']],
+        ['Search and browser title', ['metaTitle', 'metaDescription']],
+      ];
+      const remaining = new Set([...fieldsBox.children]);
+      for (const [title, names] of groups) {
+        const details = document.createElement('details');
+        details.className = 'owner-field-group';
+        const summary = document.createElement('summary');
+        summary.textContent = title;
+        details.append(summary);
+        for (const child of [...remaining]) {
+          if (names.some((name) => child.querySelector(`[name="${name}"]`))) {
+            details.append(child);
+            remaining.delete(child);
+          }
+        }
+        fieldsBox.append(details);
+      }
+      const extra = document.createElement('details');
+      extra.className = 'owner-field-group';
+      extra.innerHTML = '<summary>Page headings and button labels</summary>';
+      remaining.forEach((child) => extra.append(child));
+      fieldsBox.append(extra);
+    }
     target.textContent = `${KIND_LABELS[base.kind]}: ${label}`;
     result.textContent = '';
     editor.hidden = false;
-    editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (backdrop !== null) backdrop.hidden = false;
+    document.body.classList.add('owner-editor-open');
     fieldsBox.querySelector<HTMLElement>('input, textarea')?.focus();
   };
 
   const closeEditor = (): void => {
+    if (saving) return;
+    clearPreviews();
     editing = null;
     editor.hidden = true;
+    if (backdrop !== null) backdrop.hidden = true;
+    document.body.classList.remove('owner-editor-open');
     fieldsBox.innerHTML = '';
   };
 
   const readValues = (): FormValues => {
+    syncRich(editor);
+    syncStructured(editor);
     const data = new FormData(editor);
     const values: Record<string, string | boolean> = {};
     for (const spec of editing ? FORM_FIELDS[editing.base.kind] : []) {
@@ -300,6 +412,7 @@ export function mountOwnerConsole(root: HTMLElement, options: OwnerConsoleOption
     const outcome = await saveEntity(options.deps, candidate, expectedRev);
     if (outcome.status === 'saved') {
       raw = replaceEntity(raw, key, outcome.entity);
+      options.onPublished?.(outcome.entity.id);
       options.onRawChange(raw, describeOutcome(outcome));
     }
     return outcome;
@@ -310,6 +423,7 @@ export function mountOwnerConsole(root: HTMLElement, options: OwnerConsoleOption
       'button[data-action]',
     );
     if (!button) return;
+    if (saving) return;
     const action = button.dataset.action;
     const key = button.dataset.collection ?? '';
     const id = button.dataset.id ?? null;
@@ -351,26 +465,53 @@ export function mountOwnerConsole(root: HTMLElement, options: OwnerConsoleOption
     }
 
     if (action === 'edit') {
-      openEditor(key, entity, `${entity.title} (revision ${entity.rev})`, entity.rev);
+      const unpublished = options.unpublishedIds?.includes(entity.id) ?? false;
+      const editableBase = unpublished ? ({ ...entity, rev: 0 } as AnyEntity) : entity;
+      openEditor(
+        key,
+        editableBase,
+        unpublished ? `${entity.title} (first publish)` : `${entity.title} (revision ${entity.rev})`,
+        unpublished ? null : entity.rev,
+      );
+      return;
+    }
+
+    if ((action === 'toggle-section' || action === 'toggle-footer') && entity.kind === 'site') {
+      const sectionId = button.dataset.section;
+      const expectedRev = options.unpublishedIds?.includes(entity.id) ? null : entity.rev;
+      const candidate: AnyEntity = {
+        ...entity, rev: (expectedRev ?? 0) + 1, updatedAt: now(),
+        payload: { ...entity.payload,
+          ...(action === 'toggle-footer' ? { footerVisible: entity.payload.footerVisible === false } : {}),
+          sections: entity.payload.sections.map((section) =>
+          section.id === sectionId ? { ...section, visible: !section.visible } : section,
+        ) },
+      };
+      const outcome = await persist(key, candidate, expectedRev);
+      actionNotice.textContent = describeOutcome(outcome);
       return;
     }
 
     if (action === 'toggle-hidden') {
       const next = setHidden(entity, !entity.hidden, now());
-      const outcome = await persist(key, next, entity.rev);
+      const expectedRev = options.unpublishedIds?.includes(entity.id) ? null : entity.rev;
+      const outcome = await persist(key, { ...next, rev: (expectedRev ?? 0) + 1 }, expectedRev);
       result.textContent = describeOutcome(outcome);
+      actionNotice.textContent = describeOutcome(outcome);
       return;
     }
 
     if (action === 'delete') {
       if (
         !window.confirm(
-          `Delete "${entity.title}" from the public site? The record is kept as a tombstone.`,
+          `Delete "${entity.title}" from the site? Use Hide instead if you want to show it again later.`,
         )
       )
         return;
-      const outcome = await persist(key, tombstone(entity, now()), entity.rev);
+      const expectedRev = options.unpublishedIds?.includes(entity.id) ? null : entity.rev;
+      const outcome = await persist(key, { ...tombstone(entity, now()), rev: (expectedRev ?? 0) + 1 }, expectedRev);
       result.textContent = describeOutcome(outcome);
+      actionNotice.textContent = describeOutcome(outcome);
       return;
     }
 
@@ -397,16 +538,41 @@ export function mountOwnerConsole(root: HTMLElement, options: OwnerConsoleOption
 
   const onSubmit = async (event: Event): Promise<void> => {
     event.preventDefault();
-    if (editing === null) return;
+    if (editing === null || saving) return;
     const { key, base, expectedRev } = editing;
     const stamp = now();
-    const built = fromValues(base, readValues(), stamp, expectedRev);
+    let values = readValues();
+    const preflight = fromValues(base, values, stamp, expectedRev);
+    if (!preflight.ok) {
+      result.textContent = `Not saved, please fix: ${preflight.errors.join('; ')}`;
+      return;
+    }
+    const checked = validateEntity(preflight.entity);
+    if (!checked.ok) {
+      result.textContent = `Please complete the content before uploading: ${checked.errors.join('; ')}`;
+      return;
+    }
+    const richSnapshot = syncRich(editor);
+    try {
+      values = await publishSelectedMedia(base, values, selectedFiles, options.deps);
+      for (const field of selectedFiles.keys()) {
+        const control = fieldsBox.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${field}"]`);
+        const value = values[field];
+        if (control && typeof value === 'string') control.value = value;
+      }
+      selectedFiles.clear();
+    } catch (error) {
+      result.textContent = `Media was not published: ${error instanceof Error ? error.message : 'unknown error'}`;
+      return;
+    }
+    const built = fromValues(base, values, stamp, expectedRev);
     if (!built.ok) {
       result.textContent = `Not saved, please fix: ${built.errors.join('; ')}`;
       return;
     }
-    const outcome = await persist(key, built.entity, expectedRev);
+    const outcome = await persist(key, { ...built.entity, richText: { ...base.richText, ...richSnapshot } }, expectedRev);
     if (outcome.status === 'saved') {
+      saving = false;
       closeEditor();
       return;
     }
@@ -414,17 +580,238 @@ export function mountOwnerConsole(root: HTMLElement, options: OwnerConsoleOption
   };
 
   const handleClick = (event: Event): void => {
-    void onClick(event);
+    const clicked = event.target as Element | null;
+    const richButton = clicked?.closest<HTMLButtonElement>('[data-rich-command]');
+    if (richButton) {
+      const richEditor = richButton.closest('[data-rich-field]')?.querySelector<HTMLElement>('[contenteditable]');
+      richEditor?.focus();
+      const selection = window.getSelection();
+      if (richSelection && richEditor?.contains(richSelection.commonAncestorContainer)) {
+        selection?.removeAllRanges();
+        selection?.addRange(richSelection);
+      }
+      const command = richButton.dataset.richCommand ?? '';
+      document.execCommand(command, false, command === 'formatBlock' ? 'h2' : undefined);
+      return;
+    }
+    const linkButton = clicked?.closest('[data-rich-link]');
+    if (linkButton) {
+      const field = linkButton.closest('[data-rich-field]');
+      const input = field?.querySelector<HTMLInputElement>('[data-rich-url]');
+      const richEditor = field?.querySelector<HTMLElement>('[contenteditable]');
+      const href = input?.value.trim() ?? '';
+      if (!/^(?:qortal:\/\/|https?:\/\/|#)/i.test(href)) {
+        result.textContent = 'Enter a qortal://, https:// or # link.';
+        return;
+      }
+      richEditor?.focus();
+      const selection = window.getSelection();
+      if (richSelection && richEditor?.contains(richSelection.commonAncestorContainer)) {
+        selection?.removeAllRanges();
+        selection?.addRange(richSelection);
+      }
+      if (selection?.isCollapsed) document.execCommand('insertText', false, href);
+      document.execCommand('createLink', false, href);
+      if (input) input.value = '';
+      return;
+    }
+    const mediaRemove = clicked?.closest<HTMLButtonElement>('[data-media-remove]');
+    const mediaUndo = clicked?.closest<HTMLButtonElement>('[data-media-undo]');
+    const removeItem = clicked?.closest<HTMLButtonElement>('[data-media-remove-item]');
+    if (removeItem && !saving) {
+      const field = removeItem.dataset.mediaRemoveItem ?? '';
+      const row = removeItem.closest<HTMLElement>('.owner-media-item');
+      const preview = row?.parentElement;
+      if (row && preview) {
+        const index = [...preview.children].indexOf(row);
+        const stored = fieldsBox.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${field}"]`);
+        if (selectedFiles.has(field)) {
+          const pending = selectedFiles.get(field)!;
+          selectedFiles.set(field, pending.then((files) => files.filter((_, position) => position !== index)));
+        } else if (stored) {
+          const lines = stored.value.split('\n').filter((line) => line.trim());
+          lines.splice(index, 1);
+          stored.value = lines.join('\n') || (field === 'images' || field === 'video' ? '' : 'placeholder | No image | No image');
+        }
+        row.remove();
+      }
+      return;
+    }
+    if ((mediaRemove || mediaUndo) && !saving) {
+      const field = mediaRemove?.dataset.mediaRemove ?? mediaUndo?.dataset.mediaUndo ?? '';
+      selectedFiles.delete(field);
+      const input = fieldsBox.querySelector<HTMLInputElement>(`[data-media-field="${field}"]`);
+      if (input) input.value = '';
+      const stored = fieldsBox.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${field}"]`);
+      if (stored && editing) stored.value = mediaUndo ? String(toValues(editing.base)[field] ?? '')
+        : field === 'video' || field === 'images' ? '' : 'placeholder | No image | No image';
+      const preview = fieldsBox.querySelector<HTMLElement>(`[data-media-preview="${field}"]`);
+      if (preview) {
+        if (mediaUndo && stored) preview.innerHTML = mediaPreview(stored.value, field, field === 'video');
+        else preview.textContent = 'Media removed. Save changes to apply.';
+      }
+      return;
+    }
+    const add = clicked?.closest('[data-row-add]');
+    const remove = clicked?.closest('[data-row-remove]');
+    if (add) {
+      const group = add.closest<HTMLElement>('[data-structured]');
+      group?.querySelector('[data-rows]')?.insertAdjacentHTML('beforeend', structuredRow(group.dataset.structured ?? ''));
+      return;
+    }
+    if (remove) {
+      remove.closest('.owner-structured-row')?.remove();
+      return;
+    }
+    const operation = onClick(event);
+    const action = (event.target as Element | null)?.closest<HTMLButtonElement>('[data-action]')?.dataset.action;
+    if (['delete', 'toggle-hidden', 'toggle-section', 'toggle-footer'].includes(action ?? '')) {
+      saving = true;
+      actionNotice.textContent = 'Saving…';
+      void operation.catch((error: unknown) => {
+        actionNotice.textContent = error instanceof Error ? error.message : 'Unable to save.';
+      }).finally(() => {
+        saving = false;
+        if (actionNotice.textContent === 'Saving…') actionNotice.textContent = '';
+      });
+    }
   };
   const handleSubmit = (event: Event): void => {
-    void onSubmit(event);
+    if (saving) { event.preventDefault(); return; }
+    const promise = onSubmit(event);
+    saving = true;
+    fieldsBox.inert = true;
+    const submit = editor.querySelector<HTMLButtonElement>('[type="submit"]');
+    if (submit) { submit.disabled = true; submit.textContent = 'Saving…'; }
+    void promise.catch((error: unknown) => {
+      result.textContent = error instanceof Error ? error.message : 'Unable to save. Please try again.';
+    }).finally(() => {
+      saving = false;
+      fieldsBox.inert = false;
+      if (submit) { submit.disabled = false; submit.textContent = 'Save changes'; }
+    });
+  };
+  const handleChange = (event: Event): void => {
+    const input = event.target as HTMLInputElement | null;
+    const field = input?.dataset.mediaField;
+    if (!field || input?.files === null) return;
+    const files = [...input.files];
+    const kind = input.dataset.mediaKind;
+    const max = kind === 'video' ? 200 * 1024 * 1024 : 10 * 1024 * 1024;
+    const oversized = files.find((file) => file.size > max);
+    if (oversized) {
+      result.textContent = `${oversized.name} is too large. Maximum: ${kind === 'video' ? '200 MB' : '10 MB'}.`;
+      input.value = '';
+      return;
+    }
+    const prepared = Promise.all(files.map(snapshotFile));
+    selectedFiles.set(field, prepared);
+    result.textContent = 'Preparing media…';
+    void prepared.then(() => {
+      if (selectedFiles.get(field) === prepared) result.textContent = 'Media ready to publish.';
+    }).catch((error: unknown) => {
+      if (selectedFiles.get(field) === prepared) {
+        result.textContent = error instanceof Error ? error.message : 'Unable to read media. Choose it again.';
+      }
+    });
+    const preview = root.querySelector<HTMLElement>(`[data-media-preview="${field}"]`);
+    if (preview !== null) {
+      preview.replaceChildren();
+      for (const file of files) {
+        const url = URL.createObjectURL(file);
+        previewUrls.push(url);
+        const media = document.createElement(kind === 'video' ? 'video' : 'img');
+        media.src = url;
+        if (media instanceof HTMLVideoElement) media.controls = true;
+        else media.alt = file.name;
+        const caption = document.createElement('span');
+        caption.textContent = `${file.name} (${Math.ceil(file.size / 1024)} KB)`;
+        const row = document.createElement('div');
+        row.className = 'owner-media-item';
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'owner-row-remove';
+        remove.dataset.mediaRemoveItem = field;
+        remove.textContent = 'Remove';
+        row.append(media, caption, remove);
+        preview.append(row);
+      }
+    }
   };
   root.addEventListener('click', handleClick);
+  const rememberSelection = (): void => {
+    const selection = window.getSelection();
+    if (selection?.rangeCount && fieldsBox.contains(selection.anchorNode)) {
+      const node = selection.anchorNode?.parentElement?.closest('[contenteditable]');
+      if (node) richSelection = selection.getRangeAt(0).cloneRange();
+    }
+  };
+  document.addEventListener('selectionchange', rememberSelection);
+  root.addEventListener('change', handleChange);
   editor.addEventListener('submit', handleSubmit);
   return () => {
+    clearPreviews();
+    actionNotice.remove();
+    document.removeEventListener('selectionchange', rememberSelection);
     root.removeEventListener('click', handleClick);
+    root.removeEventListener('change', handleChange);
     editor.removeEventListener('submit', handleSubmit);
   };
+}
+
+function mediaIdentifier(entityId: string, field: string, index: number): string {
+  const suffix = `_${field}_${index + 1}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  return `${entityId.slice(0, Math.max(1, 60 - suffix.length))}${suffix}`;
+}
+
+function mediaPreview(text: string, field: string, video: boolean): string {
+  return text.split('\n').filter((line) => line.trim()).map((line) => {
+    const parts = line.split('|').map((part) => part.trim());
+    const url = parts[0] === 'bundled' ? parts[1] : parts[0] === 'qdn'
+      ? qdnFileUrl(video ? 'VIDEO' : 'IMAGE', parts[1] ?? '', parts[2] ?? '', parts[3] ?? '') : '';
+    const label = parts[0] === 'qdn' ? parts[3] : parts[0] === 'placeholder' ? parts[1] : 'Current image';
+    const attributes = parts[0] === 'qdn' ? qdnAttributes(video ? 'VIDEO' : 'IMAGE', parts[1] ?? '', parts[2] ?? '') : '';
+    return `<div class="owner-media-item">${url ? video
+      ? `<video controls preload="metadata" src="${escapeHtml(url)}" ${attributes}></video>`
+      : `<img src="${escapeHtml(url)}" alt="Current image" ${attributes}>` : ''}
+      <span>${escapeHtml(label ?? 'Media')}</span>
+      <button type="button" class="owner-row-remove" data-media-remove-item="${field}">Remove</button></div>`;
+  }).join('');
+}
+
+async function publishSelectedMedia(
+  base: AnyEntity,
+  values: FormValues,
+  selected: ReadonlyMap<string, Promise<File[]>>,
+  deps: OwnerDeps,
+): Promise<FormValues> {
+  if (selected.size === 0) return values;
+  if (deps.writer.publishFile === undefined) throw new Error('Qortal file publishing is unavailable.');
+  const next: Record<string, string | boolean> = { ...values };
+  for (const [field, pending] of selected) {
+    const files = await pending;
+    const spec = FORM_FIELDS[base.kind].find((item) => item.name === field);
+    if (spec?.media === undefined || files.length === 0) continue;
+    const lines: string[] = [];
+    for (const [index, file] of files.entries()) {
+      const identifier = mediaIdentifier(base.id, `${Date.now().toString(36)}_${field}`, index);
+      const service = spec.media === 'video' ? 'VIDEO' : 'IMAGE';
+      await deps.writer.publishFile({
+        name: deps.name,
+        service,
+        identifier,
+        title: `${base.title || file.name} – ${field}`,
+        file,
+      });
+      lines.push(
+        spec.media === 'video'
+          ? `qdn | ${deps.name} | ${identifier} | ${file.name} | ${base.title || file.name}`
+          : `qdn | ${deps.name} | ${identifier} | ${file.name} | ${base.title || file.name}`,
+      );
+    }
+    next[field] = spec.media === 'images' ? lines.join('\n') : (lines[0] ?? '');
+  }
+  return next;
 }
 
 /** Exposed for tests: the template a new entity of `kind` starts from. */

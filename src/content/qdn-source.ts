@@ -32,12 +32,33 @@ const SITE_IDENTIFIER = 'qwb_site_v1';
 export function createQdnSource(options: QdnSourceOptions): ContentSource {
   const batchSize = Math.max(1, options.batchSize ?? 6);
 
-  const fallbackWith = async (reason: string[]): Promise<ContentLoadResult> => {
+  const fallbackWith = async (
+    reason: string[],
+    published: readonly AnyEntity[] = [],
+  ): Promise<ContentLoadResult> => {
     const seed = await options.fallback.load();
+    const replace = <E extends AnyEntity>(base: readonly E[], kind: E['kind']): E[] => {
+      const remote = published.filter((entity) => entity.kind === kind) as E[];
+      const byId = new Map(base.map((entity) => [entity.id, entity]));
+      remote.forEach((entity) => byId.set(entity.id, entity));
+      return [...byId.values()];
+    };
+    const remoteSite = published.find((entity): entity is SiteEntity => entity.kind === 'site');
+    const merged: ContentBundle = sortBundle({
+      site: remoteSite ?? seed.raw.site,
+      services: replace(seed.raw.services, 'service'),
+      steps: replace(seed.raw.steps, 'step'),
+      works: replace(seed.raw.works, 'work'),
+      prices: replace(seed.raw.prices, 'price'),
+      articles: replace(seed.raw.articles, 'article'),
+    });
     return {
       ...seed,
       status: 'partial',
+      raw: merged,
+      bundle: publicBundle(merged),
       diagnostics: [...reason, ...seed.diagnostics],
+      publishedIds: published.map((entity) => entity.id),
     };
   };
 
@@ -94,16 +115,21 @@ export function createQdnSource(options: QdnSourceOptions): ContentSource {
         return fallbackWith([
           ...diagnostics,
           'the site entity is not published yet; showing built-in content.',
-        ]);
+        ], entities);
       }
 
+      const seed = await options.fallback.load();
+      const combined = <E extends AnyEntity>(base: readonly E[], kind: E['kind']): E[] => [
+        ...base.filter((entity) => !identifiers.includes(entity.id)),
+        ...entities.filter((entity) => entity.kind === kind) as E[],
+      ];
       const candidate = {
         site,
-        services: entities.filter((entity) => entity.kind === 'service'),
-        steps: entities.filter((entity) => entity.kind === 'step'),
-        works: entities.filter((entity) => entity.kind === 'work'),
-        prices: entities.filter((entity) => entity.kind === 'price'),
-        articles: entities.filter((entity) => entity.kind === 'article'),
+        services: combined(seed.raw.services, 'service'),
+        steps: combined(seed.raw.steps, 'step'),
+        works: combined(seed.raw.works, 'work'),
+        prices: combined(seed.raw.prices, 'price'),
+        articles: combined(seed.raw.articles, 'article'),
       };
       const bundleValidation = validateBundle(candidate);
       if (!bundleValidation.ok) {
@@ -111,7 +137,7 @@ export function createQdnSource(options: QdnSourceOptions): ContentSource {
           ...diagnostics,
           ...bundleValidation.errors.map((error) => `bundle: ${error}`),
           'the published content is inconsistent; showing built-in content.',
-        ]);
+        ], entities);
       }
 
       const bundle: ContentBundle = bundleValidation.value;
@@ -124,6 +150,7 @@ export function createQdnSource(options: QdnSourceOptions): ContentSource {
         bundle: publicBundle(bundle),
         raw: sortBundle(bundle),
         diagnostics,
+        publishedIds: entities.map((entity) => entity.id),
       };
     },
   };

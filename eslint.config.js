@@ -32,8 +32,12 @@ export default tseslint.config(
   },
   {
     // The flat config file itself is plain JS and outside the TS project.
-    files: ['eslint.config.js'],
+    files: ['eslint.config.js', 'e2e/**/*.mjs'],
     ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
+      parserOptions: { projectService: false },
+    },
   },
   prettier,
 );

@@ -1,5 +1,6 @@
 import type { SiteEntity } from '../content/schema';
 import { escapeHtml } from '../ui/html';
+import { richContent } from '../owner/rich-text';
 
 /**
  * Contact: owner-editable intro and contact columns. Values are Qortal deep
@@ -31,7 +32,7 @@ ${rows}
             <div class="row justify-content-center">
               <div class="col-lg-8 col-12 text-center">
                 <h2 id="contact-heading" class="mb-3">${escapeHtml(contact.heading)}</h2>
-                <p class="lead-text mb-5">${escapeHtml(contact.intro)}</p>
+                <div class="lead-text mb-5 rich-content">${richContent(site, 'contactIntro', contact.intro)}</div>
               </div>
             </div>
             <div class="row justify-content-center">

@@ -1,5 +1,6 @@
 import type { ServiceEntity } from '../content/schema';
 import { escapeHtml } from '../ui/html';
+import { richContent } from '../owner/rich-text';
 
 /** Services: the two offerings, each as a card with its bullet list and a call to action. */
 export function renderServices(services: readonly ServiceEntity[], heading: string): string {
@@ -29,10 +30,10 @@ function renderServiceCard(service: ServiceEntity): string {
                   </div>`;
 
   return `              <div class="col-lg-6 col-12 mb-4">
-                <article class="custom-block bg-white shadow-lg service-card">
+                <article class="custom-block bg-white shadow-lg service-card" data-owner-collection="services" data-owner-id="${escapeHtml(service.id)}">
                   <span class="service-icon" aria-hidden="true">${escapeHtml(icon)}</span>
                   <h3 class="card-title mb-2">${escapeHtml(service.title)}</h3>
-                  <p>${escapeHtml(summary)}</p>
+                  <div class="rich-content">${richContent(service, 'summary', summary)}</div>
                   <ul class="service-list">
 ${items}
                   </ul>${action}

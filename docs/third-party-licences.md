@@ -238,6 +238,19 @@ Both font families ship under the same OFL 1.1 text reproduced above; only the
 copyright holder differs. There is no separate "Reserved Font Name" beyond the
 family names themselves, so the woff2 subsets are redistributed unmodified.
 
+## DOMPurify — Apache-2.0 OR MPL-2.0
+
+`dompurify` (resolved version in `package-lock.json`) is bundled into the app's
+JavaScript to sanitize owner-authored rich text. Upstream:
+<https://github.com/cure53/DOMPurify>. Copyright Cure53 and contributors.
+DOMPurify offers a choice of Apache License 2.0 or Mozilla Public License 2.0;
+its upstream licence text is distributed in the npm package's `LICENSE`:
+<https://github.com/cure53/DOMPurify/blob/main/LICENSE>.
+
+Playwright (`@playwright/test`, Apache-2.0) is a development-only browser-test
+dependency and is not shipped in the QDN archive. FFmpeg is an external local
+test prerequisite for generating the MP4 fixture and is not bundled.
+
 ## Intentionally not bundled
 
 | Dependency                                                                    | Licence                      | Why it is absent                                                                                                                                                                  |

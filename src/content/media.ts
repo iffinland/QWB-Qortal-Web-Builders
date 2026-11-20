@@ -19,7 +19,10 @@ export function qdnFileUrl(
   identifier: string,
   filename: string,
 ): string {
-  return `/arbitrary/${service}/${encodeURIComponent(name)}/${encodeURIComponent(identifier)}/${encodeURIComponent(filename)}`;
+  void filename; // Kept in stored references as display metadata for compatibility.
+  // IMAGE/VIDEO/THUMBNAIL publishes are raw single-file resources, not archives.
+  // The selected device filename is metadata, not a path inside the resource.
+  return `/arbitrary/${service}/${encodeURIComponent(name)}/${encodeURIComponent(identifier)}`;
 }
 
 export function qdnMediaUrl(ref: Extract<ImageRef, { source: 'qdn' }>): string {

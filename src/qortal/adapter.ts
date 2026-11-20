@@ -42,12 +42,24 @@ export interface PublishRequest {
 export interface QdnWriter {
   /** Resolves when the platform accepted the publish; rejects otherwise. */
   publishJson(request: PublishRequest): Promise<void>;
+  /** Publishes owner-selected media before its JSON entity references it. */
+  publishFile?(request: {
+    readonly name: string;
+    readonly service: 'IMAGE' | 'VIDEO' | 'FILE';
+    readonly identifier: string;
+    readonly title: string;
+    readonly file: File;
+  }): Promise<void>;
 }
 
 /** The platform bridge: `window.qortalRequest` when the app runs inside a Qortal host. */
 export interface QortalBridge {
   request(payload: Record<string, unknown>): Promise<unknown>;
 }
+
+// Some Qortal mobile hosts inject this as a global binding without adding it to
+// `window`. `typeof` keeps the lookup safe in ordinary browsers.
+declare const qortalRequest: unknown;
 
 export class QdnHttpError extends Error {
   readonly status: number;
@@ -79,6 +91,13 @@ export function detectBridge(scope: unknown): QortalBridge | null {
   if (typeof scope !== 'object' || scope === null) return null;
   const own = find((scope as { readonly qortalRequest?: unknown }).qortalRequest);
   if (own !== null) return own;
+  const injected = typeof qortalRequest === 'undefined' ? null : find(qortalRequest);
+  if (injected !== null) return injected;
+  const globalBridge =
+    typeof globalThis === 'undefined'
+      ? null
+      : find((globalThis as { readonly qortalRequest?: unknown }).qortalRequest);
+  if (globalBridge !== null) return globalBridge;
   if (typeof window !== 'undefined') {
     try {
       const parentBridge = find(hostOf(window.parent));
@@ -100,6 +119,15 @@ function utf8ToBase64(text: string): string {
   const bytes = new TextEncoder().encode(text);
   let binary = '';
   // Chunked to avoid argument-count limits on large payloads.
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
   }
@@ -204,6 +232,21 @@ export function createBridgeWriter(bridge: QortalBridge): QdnWriter {
         'signature' in response &&
         typeof response.signature === 'string';
       if (!accepted) throw new Error('the platform did not confirm the publish');
+    },
+    async publishFile({ name, service, identifier, title, file }) {
+      const response = await bridge.request({
+        action: 'PUBLISH_QDN_RESOURCE',
+        name,
+        service,
+        identifier,
+        title,
+        filename: file.name,
+        data64: await fileToBase64(file),
+        encoding: 'base64',
+      });
+      const accepted =
+        typeof response === 'object' && response !== null && 'signature' in response;
+      if (!accepted) throw new Error('the platform did not confirm the media publish');
     },
   };
 }

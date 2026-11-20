@@ -146,7 +146,8 @@ describe('project pages', () => {
     const html = createWorkView(content, work).html;
     expect(html).toContain('<video');
     expect(html).toContain('aria-label="Demo tour"');
-    expect(html).toContain('/arbitrary/VIDEO/Qortal%20Web%20Builders/qwb_work_demo-1/demo.mp4');
+    expect(html).toContain('/arbitrary/VIDEO/Qortal%20Web%20Builders/qwb_work_demo-1');
+    expect(html).not.toContain('/qwb_work_demo-1/demo.mp4');
   });
 
   it('lists every project in the portfolio view', async () => {

@@ -35,7 +35,7 @@ export function createHomeView(content: ContentBundle): View {
   }
   if (isVisible(site, 'portfolio')) {
     parts.push(
-      renderPortfolio(featuredWorks(content), content.works.length, labelOf(site, 'portfolio')),
+      renderPortfolio(featuredWorks(content), content.works.length, labelOf(site, 'portfolio'), site),
     );
   }
   if (isVisible(site, 'how-it-works')) {

@@ -1,14 +1,10 @@
 /*----------------------------------------------------------------------------------
   QWB design tokens
-  Derived verbatim from the audited golden master theme layer
-  (`-PUBLISHED-versioon/css/templatemo-topic-listing.css`, `:root`), so that
-  "did the design survive?" is verifiable against the published site.
-  The corrupted SCSS tail (external Google Fonts @import, `$variables`, nested
-  rules, a global `p{}` leak and an absolutely-positioned `h4{}` leak) is not
-  carried forward - see docs/architecture.md.
+  Maintained in this repository alongside the theme and component styles.
+  GitHub main is the authoritative version; see README.md and docs/architecture.md.
 ----------------------------------------------------------------------------------*/
 :root {
-  /* Identity colours - unchanged from the published site */
+  /* Identity colours */
   --white-color: #ffffff;
   --primary-color: #13547a;
   --secondary-color: #80d0c7;

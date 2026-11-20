@@ -1,9 +1,6 @@
 /*----------------------------------------------------------------------------------
-  QWB theme layer - the component vocabulary of the published site, preserved.
-  Class names are deliberately identical to the golden master theme so the
-  visual descent stays checkable. Removed here: dead template components
-  (timeline, FAQ, newsletter, subscribe form, pagination, dropdowns, social
-  icons, unused topic-listing variants) and the unusable SCSS tail.
+  QWB theme layer - shared public-page component styles.
+  Maintained with src/views/ and components.css in this repository.
 ----------------------------------------------------------------------------------*/
 html {
   /* The navbar is out of flow at the top of the page and pinned while

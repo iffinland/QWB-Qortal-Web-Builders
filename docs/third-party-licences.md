@@ -253,16 +253,17 @@ test prerequisite for generating the MP4 fixture and is not bundled.
 
 ## Intentionally not bundled
 
-| Dependency                                                                    | Licence                      | Why it is absent                                                                                                                                                                  |
-| ----------------------------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bootstrap Icons (`css/bootstrap-icons.css`, `fonts/bootstrap-icons.woff{,2}`) | MIT                          | Present in the golden master, referenced by nothing that survives into the new build. The theme's icon font was only used by removed template markup. Not installed, not bundled. |
-| jQuery 2.2.3, `jquery.sticky`, `click-scroll`                                 | MIT                          | The obsolete plugin layer. Its behaviour is reimplemented natively in `src/ui/nav.ts` and `src/ui/scroll-to-top.ts`; no jQuery code is loaded.                                    |
-| `bootstrap.bundle.min.js`                                                     | MIT                          | The Bootstrap JS components are not used (the navbar collapse and the tab strip are native implementations), so the JS bundle is not imported and does not reach `dist/`.         |
-| `templatemo-topic-listing` theme CSS                                          | Template licence, unrecorded | Not redistributed. The design tokens and class vocabulary were re-expressed in `src/styles/`; the original stylesheet is not shipped.                                             |
+| Dependency                                    | Licence                      | Why it is absent                                                                                                                                                          |
+| --------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bootstrap Icons                               | MIT                          | Not installed, imported or bundled by the current app.                                                                                                                    |
+| jQuery 2.2.3, `jquery.sticky`, `click-scroll` | MIT                          | The obsolete plugin layer. Its behaviour is reimplemented natively in `src/ui/nav.ts` and `src/ui/scroll-to-top.ts`; no jQuery code is loaded.                            |
+| `bootstrap.bundle.min.js`                     | MIT                          | The Bootstrap JS components are not used (the navbar collapse and the tab strip are native implementations), so the JS bundle is not imported and does not reach `dist/`. |
+| `templatemo-topic-listing` theme CSS          | Template licence, unrecorded | Not redistributed. The design tokens and class vocabulary were re-expressed in `src/styles/`; the original stylesheet is not shipped.                                     |
 
 ## unDraw illustrations
 
-Three unDraw PNGs are bundled (see `docs/attribution.md` §1). Their licence status
+Three illustration PNGs attributed to unDraw are bundled (see
+[`attribution.md`](attribution.md#illustrations)). Their licence status
 is recorded there as **unDraw-assumed, not proven from the files**. unDraw's terms
 permit use without attribution; this is an assumption about the artefacts rather
 than a verified licence, and it is flagged for owner confirmation. No third-party

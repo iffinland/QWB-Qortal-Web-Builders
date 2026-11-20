@@ -7,19 +7,25 @@ This repository is the clean development rewrite of the published QWB site. It i
 a single-entry `WEBSITE` QDN application: Vite + TypeScript + vanilla DOM modules,
 no framework runtime, no jQuery, no `qapp-core`.
 
-## Repository map
+## Source of truth
 
-| Role                                           | Location                                                                                |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------- |
-| This repository (build target)                 | `/home/iffi/VsCodec-Projects/QWB-Qortal-Web-Builders/qortal-web-builders`               |
-| Immutable visual golden master (**read-only**) | `/home/iffi/VsCodec-Projects/QWB-Qortal-Web-Builders/-PUBLISHED-versioon`               |
-| GitHub remote                                  | `git@github.com:iffinland/QWB-Qortal-Web-Builders.git`                                  |
-| Canonical report root (outside this repo)      | `/home/iffi/VsCodec-Projects/Qortal/qortal-dev-workspace/docs/qwb-qortal-web-builders/` |
+The only authoritative source for the latest app code and documentation is
+[`iffinland/QWB-Qortal-Web-Builders`, branch `main`](https://github.com/iffinland/QWB-Qortal-Web-Builders/tree/main).
 
-The golden master has no Git metadata and is **never** a Git remote, submodule,
-worktree or reference directory of this repository. Individual assets were
-_copied_ in with a written source mapping ([`docs/attribution.md`](docs/attribution.md));
-never build, format or edit inside the golden master itself.
+Development does not depend on a particular computer, editor, checkout directory,
+external report folder or separate reference copy. All paths in the instructions
+are relative to this repository's root. Temporary workspaces and downloaded ZIPs
+are snapshots; consult GitHub `main` for the current version. Published website
+archives and owner-authored QDN content are separate from the source repository.
+
+| Location  | Purpose                                               |
+| --------- | ----------------------------------------------------- |
+| `src/`    | app code, styles, bundled assets and seed content     |
+| `tests/`  | unit and integration tests                            |
+| `e2e/`    | browser workflow tests                                |
+| `docs/`   | architecture, asset inventory and licence information |
+| `public/` | icons and web manifest copied into the build          |
+| `dist/`   | generated publishing output, not committed            |
 
 ## Commands
 
@@ -46,22 +52,13 @@ npm run format       # prettier --write .
 - All runtime asset URLs are relative (`base: './'`), so the build works from any
   QDN resource path.
 
-## Pinned references
+## Related project
 
-Platform behaviour is designed against these revisions. Re-verify before any
-platform-dependent change.
-
-| Reference                                              | Revision                                            |
-| ------------------------------------------------------ | --------------------------------------------------- |
-| Qortal Core `master`                                   | `108bf191d42d710ec617f535af30cfd82fc03c87` (6.1.9)  |
-| Qortal Hub `develop`                                   | `12a573b27246e8a626b24794830c6bc432d1b05d`          |
-| qapp-core `master`                                     | `0f9d6ac5134ef2f82c1444a74e78471ddc7eb7df` (1.0.79) |
-| qapp-templates `main`                                  | `143cc7bffd265f543f96ef25bf1b58ef7bb04472`          |
-| Reference app `iffinland/iffi-vaba-mees-QORTAL` `main` | `64f55bf7b6f4a1a093f19413d3a985e61a9fad37`          |
-
-Golden-master integrity is proven by the manifest at
-`…/docs/qwb-qortal-web-builders/validation/2026-09-15-qwb-golden-master-sha256.txt`
-(manifest digest `18e2a960cc126cb34ab68c432c5a8a1331c980fbb187db38f63d7ad063b95a43`).
+[`iffi-vaba-mees-QORTAL`](https://github.com/iffinland/iffi-vaba-mees-QORTAL)
+provided a reference for contextual editing and Qortal media URL resolution.
+It is not the source of truth for this app. Runtime compatibility should be
+checked against the Qortal client/node used for deployment; old reference
+revisions are not a current compatibility guarantee.
 
 ## Architecture in one screen
 
@@ -71,10 +68,10 @@ src/main.ts           boot: load content → resolve hash route → render shell
 src/router.ts         hash routes (#/ , #/works, #/posts, #/post/<slug>) + legacy #section_N
 src/content/
   schema.ts           entity envelope, payload validators, identifier policy
-  seed.ts             typed Phase-1 seed content
+  seed.ts             built-in starting content
   repository.ts       content-source boundary, tombstone filter, deterministic ordering
   media.ts            image reference → absolute /arbitrary/... URL
-src/styles/           tokens.css (verbatim golden-master tokens) · theme.css · components.css
+src/styles/           design tokens, theme, editor and component styles
 src/ui/               rendering helpers, images, navbar behaviour, skip link, scroll-to-top
 src/views/            one module per section/view: render(data) → HTML, plus a mount() hook
 tests/                vitest + jsdom
@@ -86,15 +83,11 @@ publishing name is resolved from the Qortal render URL, ownership is checked
 fail-closed against the connected account, and every save is revision-checked,
 published to QDN and read back before success is reported.
 
-## Status
+## Current functionality
 
-| Phase | Scope                                                             | State       |
-| ----- | ----------------------------------------------------------------- | ----------- |
-| 0     | repository, tooling, structure, reference pins, asset attribution | done        |
-| 1     | public visual baseline from typed seed content                    | done        |
-| 2     | owner recognition + owner UI shell                                | done        |
-| 3     | QDN-backed CRUD, media references, truthful outcomes              | done (beta) |
-| 4     | owner-runtime validation and documentation                       | runtime passed by owner, 2026-11-20; formal visual regression pending |
+The owner confirmed the Qortal runtime tests passed on 2026-11-20. The descriptions
+below document implemented functionality, not a phased roadmap or a comparison
+with an external visual baseline. No separate future roadmap is maintained here.
 
 The owner can edit site identity and assets, navigation, section visibility and
 headings, contact/footer/meta copy, services, steps, projects, pricing, articles,
@@ -153,6 +146,6 @@ persistence and lifecycle details.
 
 ## Documentation
 
-- [`docs/architecture.md`](docs/architecture.md) — stack, module boundaries, content model, phase seams
-- [`docs/attribution.md`](docs/attribution.md) — per-asset source mapping, SHA-256 and retention decision
-- [`docs/third-party-licences.md`](docs/third-party-licences.md) — MIT / SIL OFL notices for bundled dependencies
+- [`docs/architecture.md`](docs/architecture.md) — current stack, ownership, persistence and media lifecycle
+- [`docs/attribution.md`](docs/attribution.md) — current asset inventory, SHA-256 and provenance notes
+- [`docs/third-party-licences.md`](docs/third-party-licences.md) — bundled dependency licences and notices

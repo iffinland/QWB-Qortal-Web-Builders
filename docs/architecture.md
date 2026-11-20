@@ -1,8 +1,9 @@
 # QWB architecture
 
-Current implementation, updated 2026-11-20. The original architecture audit is
-historical context, not the current feature status:
-`/home/iffi/VsCodec-Projects/Qortal/qortal-dev-workspace/docs/qwb-qortal-web-builders/audits/2026-09-15-qwb-target-architecture-proposal.md`.
+Current implementation, updated 2026-11-20. The authoritative version of the app
+and its documentation is [GitHub `main`](https://github.com/iffinland/QWB-Qortal-Web-Builders/tree/main).
+Paths here are repository-relative. No external audit folder, editor-specific
+workspace or separate visual reference is required to develop or publish the app.
 
 ## Runtime and ownership
 
@@ -42,15 +43,15 @@ header and save controls fixed while its fields scroll.
 
 ## Routes
 
-| Hash | View |
-| --- | --- |
-| `#/` or empty | home |
-| `#section_1` … `#section_5` | legacy home anchors |
-| `#/works` | portfolio index |
-| `#/work/<slug>` | project, gallery and video |
-| `#/posts` | article index |
-| `#/post/<slug>` | article |
-| other | not found |
+| Hash                        | View                       |
+| --------------------------- | -------------------------- |
+| `#/` or empty               | home                       |
+| `#section_1` … `#section_5` | legacy home anchors        |
+| `#/works`                   | portfolio index            |
+| `#/work/<slug>`             | project, gallery and video |
+| `#/posts`                   | article index              |
+| `#/post/<slug>`             | article                    |
+| other                       | not found                  |
 
 `#main-content` is a reserved focus target, not a route. Same-view hash changes
 scroll rather than replacing the view.
@@ -59,14 +60,14 @@ scroll rather than replacing the view.
 
 All entities, including articles, use QDN `JSON` under the publishing name.
 
-| Kind | Identifier |
-| --- | --- |
+| Kind           | Identifier    |
+| -------------- | ------------- |
 | site singleton | `qwb_site_v1` |
-| service | `qwb_svc_*` |
-| step | `qwb_step_*` |
-| work | `qwb_work_*` |
-| price | `qwb_price_*` |
-| article | `qwb_post_*` |
+| service        | `qwb_svc_*`   |
+| step           | `qwb_step_*`  |
+| work           | `qwb_work_*`  |
+| price          | `qwb_price_*` |
+| article        | `qwb_post_*`  |
 
 The envelope includes schema, identifier, kind, revision, state, hidden flag,
 timestamps, sparse order, title, payload and optional `richText` field map.
@@ -122,6 +123,6 @@ reload, delayed resource resolution, removal, rich text and failed-save retry.
 The simulated bridge does not replace a real Qortal runtime check.
 
 The owner confirmed runtime tests passed on 2026-11-20 after the resource-URL fix.
-Formal visual-baseline regression remains pending. Comments, visitor accounts,
+There is no separately maintained external visual baseline. Comments, visitor accounts,
 full migration tooling, automated QDN deployment and a central admin dashboard
 are outside the current implementation.
